@@ -23,3 +23,7 @@
 ## کتابخانه‌ها
 
 [marked](https://github.com/markedjs/marked)، [KaTeX](https://katex.org)، [DOMPurify](https://github.com/cure53/DOMPurify) و فونت [وزیرمتن](https://github.com/rastikerdar/vazirmatn).
+
+## مجوز
+
+[MIT](LICENSE). کتابخانه‌ها و فونت داخل پوشه‌ی `vendor/` مجوز خودشان را دارند.
