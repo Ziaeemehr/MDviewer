@@ -34,6 +34,13 @@
     --accent: #0b63ce;
     --code-bg: #f1f3f5;
     --mark: #fff3bf;
+    --hl-comment: #6e7781;
+    --hl-keyword: #cf222e;
+    --hl-string: #0a3069;
+    --hl-number: #0550ae;
+    --hl-title: #8250df;
+    --hl-builtin: #953800;
+    --hl-tag: #116329;
   }
   :root[data-theme="dark"] {
     --bg: #15181c;
@@ -44,6 +51,13 @@
     --accent: #6cb0ff;
     --code-bg: #232830;
     --mark: #5c4a00;
+    --hl-comment: #8b949e;
+    --hl-keyword: #ff7b72;
+    --hl-string: #a5d6ff;
+    --hl-number: #79c0ff;
+    --hl-title: #d2a8ff;
+    --hl-builtin: #ffa657;
+    --hl-tag: #7ee787;
   }
 
   * { box-sizing: border-box; }
@@ -189,6 +203,20 @@
   }
   .md pre code { background: none; padding: 0; font-size: 1em; }
 
+  /* syntax highlighting (highlight.js token classes) */
+  .md .hljs-comment, .md .hljs-quote, .md .hljs-meta { color: var(--hl-comment); }
+  .md .hljs-comment, .md .hljs-quote { font-style: italic; }
+  .md .hljs-keyword, .md .hljs-selector-tag, .md .hljs-doctag, .md .hljs-deletion { color: var(--hl-keyword); }
+  .md .hljs-string, .md .hljs-regexp, .md .hljs-addition { color: var(--hl-string); }
+  .md .hljs-number, .md .hljs-literal, .md .hljs-attr, .md .hljs-attribute, .md .hljs-variable,
+  .md .hljs-template-variable, .md .hljs-symbol, .md .hljs-bullet, .md .hljs-link,
+  .md .hljs-selector-attr, .md .hljs-selector-pseudo { color: var(--hl-number); }
+  .md .hljs-title, .md .hljs-section, .md .hljs-selector-id, .md .hljs-selector-class { color: var(--hl-title); }
+  .md .hljs-built_in, .md .hljs-type { color: var(--hl-builtin); }
+  .md .hljs-name, .md .hljs-tag { color: var(--hl-tag); }
+  .md .hljs-emphasis { font-style: italic; }
+  .md .hljs-strong { font-weight: 700; }
+
   .md .table-wrap { overflow-x: auto; margin-bottom: 1em; }
   .md table { border-collapse: collapse; margin: 0; }
   .md th, .md td { border: 1px solid var(--border); padding: 6px 14px; }
@@ -205,6 +233,8 @@
     :root, :root[data-theme="dark"] {
       --bg: #fff; --bg-soft: #f5f6f8; --fg: #000; --muted: #555;
       --border: #ccc; --accent: #0b63ce; --code-bg: #f1f3f5; --mark: #fff3bf;
+      --hl-comment: #6e7781; --hl-keyword: #cf222e; --hl-string: #0a3069; --hl-number: #0550ae;
+      --hl-title: #8250df; --hl-builtin: #953800; --hl-tag: #116329;
     }
     header, #editor, #divider, .md .copy { display: none !important; }
     .md pre { white-space: pre-wrap; }
@@ -272,12 +302,18 @@ def greet(name):
     return f"سلام {name}!"
 ```
 
+```julia
+f(x) = x^2 + 1          # تابع یک‌خطی
+println(sum(f, 1:10))
+```
+
 > نقل‌قول: برای باز کردن فایل، آن را به داخل صفحه بکشید یا دکمه‌ی «باز کردن» را بزنید.
 </script>
 
 <script src="vendor/marked.min.js"></script>
 <script src="vendor/purify.min.js"></script>
 <script src="vendor/katex.min.js"></script>
+<script src="vendor/highlight.min.js"></script>
 <script>
 (function () {
   'use strict';
@@ -352,6 +388,8 @@ def greet(name):
 
   /* ---------- render ---------- */
 
+  hljs.registerAliases('jl', { languageName: 'julia' });
+
   var DIR_LABEL = { auto: '↔ خودکار', rtl: '← راست‌به‌چپ', ltr: '→ چپ‌به‌راست' };
   var dirMode = store.get('mdv-dir');
   if (!DIR_LABEL[dirMode]) dirMode = 'auto';
@@ -388,6 +426,15 @@ def greet(name):
       wrap.dir = dirMode;
       t.parentNode.insertBefore(wrap, t);
       wrap.appendChild(t);
+    });
+
+    // Highlight fenced code whose language is known; unlabelled blocks stay plain.
+    out.querySelectorAll('pre > code[class*="language-"]').forEach(function (code) {
+      var m = /(?:^|\s)language-(\S+)/.exec(code.className);
+      if (!m || !hljs.getLanguage(m[1])) return;
+      try {
+        code.innerHTML = hljs.highlight(code.textContent, { language: m[1], ignoreIllegals: true }).value;
+      } catch (e) {}
     });
 
     out.querySelectorAll('pre').forEach(function (pre) {

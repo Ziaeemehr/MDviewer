@@ -16,13 +16,14 @@
 - **فرمول:** با KaTeX، به شکل‌های `$...$`، `$$...$$`، `\(...\)` و `\[...\]`.
 - **تم تاریک و روشن**
 - **Markdown به سبک GitHub:** جدول، فهرست کار و بلوک کد با دکمه‌ی کپی.
+- **رنگ‌آمیزی کد:** با highlight.js برای زبان‌های رایج، به‌علاوه‌ی Julia و LaTeX. زبان را بعد از ` ``` ` بنویسید، مثلاً ` ```python `.
 - **خروجی:** ذخیره به صورت `.md` و PDF از طریق چاپ مرورگر.
 - **ویرایشگر:** قابل پنهان کردن، با جداکننده‌ی قابل کشیدن و اسکرول هم‌گام با پیش‌نمایش.
 - **خصوصی:** همه‌چیز در مرورگر شما می‌ماند. متن، تم و چیدمان در حافظه‌ی مرورگر ذخیره می‌شود.
 
 ## کتابخانه‌ها
 
-[marked](https://github.com/markedjs/marked)، [KaTeX](https://katex.org)، [DOMPurify](https://github.com/cure53/DOMPurify) و فونت [وزیرمتن](https://github.com/rastikerdar/vazirmatn).
+[marked](https://github.com/markedjs/marked)، [KaTeX](https://katex.org)، [highlight.js](https://highlightjs.org)، [DOMPurify](https://github.com/cure53/DOMPurify) و فونت [وزیرمتن](https://github.com/rastikerdar/vazirmatn).
 
 ## مجوز
 
