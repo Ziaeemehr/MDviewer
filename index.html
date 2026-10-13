@@ -1,0 +1,565 @@
+<!doctype html>
+<html lang="fa" dir="rtl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>MD Viewer</title>
+
+<link rel="stylesheet" href="vendor/katex.min.css">
+
+<script>
+  // Apply the saved theme before first paint to avoid a flash.
+  (function () {
+    var t = null;
+    try { t = localStorage.getItem('mdv-theme'); } catch (e) {}
+    if (!t) t = matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
+    document.documentElement.dataset.theme = t;
+  })();
+</script>
+
+<style>
+  @font-face {
+    font-family: Vazirmatn;
+    src: url("vendor/fonts/Vazirmatn.woff2") format("woff2");
+    font-weight: 100 900;
+    font-display: swap;
+  }
+
+  :root {
+    --bg: #ffffff;
+    --bg-soft: #f5f6f8;
+    --fg: #1f2328;
+    --muted: #656d76;
+    --border: #d8dde3;
+    --accent: #0b63ce;
+    --code-bg: #f1f3f5;
+    --mark: #fff3bf;
+  }
+  :root[data-theme="dark"] {
+    --bg: #15181c;
+    --bg-soft: #1c2026;
+    --fg: #e3e6ea;
+    --muted: #98a2ad;
+    --border: #2f353d;
+    --accent: #6cb0ff;
+    --code-bg: #232830;
+    --mark: #5c4a00;
+  }
+
+  * { box-sizing: border-box; }
+  html, body { height: 100%; margin: 0; }
+  body {
+    display: flex;
+    flex-direction: column;
+    background: var(--bg);
+    color: var(--fg);
+    font-family: Vazirmatn, system-ui, -apple-system, "Segoe UI", Tahoma, sans-serif;
+    color-scheme: light;
+  }
+  :root[data-theme="dark"] body { color-scheme: dark; }
+
+  /* ---------- toolbar ---------- */
+  header {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 8px 12px;
+    background: var(--bg-soft);
+    border-bottom: 1px solid var(--border);
+    flex: none;
+    flex-wrap: wrap;
+  }
+  header .name {
+    flex: 1;
+    min-width: 0;
+    font-weight: 700;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    unicode-bidi: plaintext;
+    text-align: start;
+  }
+  button {
+    font: inherit;
+    font-size: 14px;
+    color: var(--fg);
+    background: var(--bg);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 5px 12px;
+    cursor: pointer;
+    white-space: nowrap;
+  }
+  button:hover { border-color: var(--accent); color: var(--accent); }
+
+  /* ---------- layout ---------- */
+  main { flex: 1; display: flex; min-height: 0; direction: ltr; }
+  #editor, #preview { min-width: 0; height: 100%; }
+  #editor { flex: 0 0 var(--split, 50%); }
+  #preview { flex: 1 1 0; }
+  #divider {
+    flex: none;
+    width: 5px;
+    cursor: col-resize;
+    background: var(--border);
+    touch-action: none;
+  }
+  #divider:hover, body.resizing #divider { background: var(--accent); }
+  body.resizing { user-select: none; cursor: col-resize; }
+  #editor {
+    resize: none;
+    border: 0;
+    outline: 0;
+    padding: 20px;
+    background: var(--bg-soft);
+    color: var(--fg);
+    font-family: Vazirmatn, ui-monospace, Menlo, Consolas, monospace;
+    font-size: 15px;
+    line-height: 1.9;
+    /* each line picks its own direction from its first strong character */
+    unicode-bidi: plaintext;
+    text-align: start;
+  }
+  /* a forced direction (RTL/LTR button) overrides the per-line detection */
+  #editor[dir] { unicode-bidi: normal; }
+  #preview { overflow: auto; padding: 28px 24px 80px; }
+  body.no-editor #editor, body.no-editor #divider { display: none; }
+  body.dragging main { outline: 3px dashed var(--accent); outline-offset: -8px; }
+
+  @media (max-width: 760px) {
+    main { flex-direction: column; }
+    #divider { display: none; }
+    #editor { border-bottom: 1px solid var(--border); flex: 0 0 40%; height: auto; }
+    #preview { padding: 20px 16px 60px; height: auto; }
+    button { padding: 5px 9px; }
+    header .name { flex-basis: 100%; }
+  }
+
+  /* ---------- rendered markdown ---------- */
+  .md { max-width: 820px; margin: 0 auto; font-size: 17px; line-height: 2; overflow-wrap: break-word; }
+  .md > :first-child { margin-top: 0; }
+  .md [dir] { text-align: start; }
+  .md h1, .md h2, .md h3, .md h4, .md h5, .md h6 { line-height: 1.5; margin: 1.6em 0 0.6em; }
+  .md h1 { font-size: 1.9em; padding-bottom: 0.25em; border-bottom: 1px solid var(--border); }
+  .md h2 { font-size: 1.5em; padding-bottom: 0.2em; border-bottom: 1px solid var(--border); }
+  .md h3 { font-size: 1.25em; }
+  .md p, .md ul, .md ol, .md blockquote, .md pre, .md table { margin: 0 0 1em; }
+  .md ul, .md ol { padding-inline-start: 1.8em; }
+  .md li > ul, .md li > ol { margin-bottom: 0; }
+  .md a { color: var(--accent); text-decoration: none; }
+  .md a:hover { text-decoration: underline; }
+  .md img { max-width: 100%; height: auto; }
+  .md hr { border: 0; border-top: 1px solid var(--border); margin: 2em 0; }
+  .md mark { background: var(--mark); color: inherit; }
+  .md blockquote {
+    padding: 0.2em 1em;
+    color: var(--muted);
+    border-inline-start: 4px solid var(--border);
+  }
+  .md blockquote > :last-child { margin-bottom: 0; }
+
+  /* code is always left-to-right, even inside a Persian paragraph */
+  .md code, .md pre {
+    font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, Vazirmatn, monospace;
+    font-size: 0.88em;
+    direction: ltr;
+    unicode-bidi: isolate;
+  }
+  .md .code-wrap { position: relative; margin-bottom: 1em; }
+  .md .code-wrap pre { margin: 0; }
+  .md .copy {
+    position: absolute;
+    top: 6px;
+    right: 6px;
+    font-size: 12px;
+    padding: 2px 8px;
+    opacity: 0;
+    transition: opacity 0.15s;
+  }
+  .md .code-wrap:hover .copy, .md .copy:focus { opacity: 1; }
+  .md li:has(> input[type="checkbox"]) { list-style: none; margin-inline-start: -1.4em; }
+  .md code { background: var(--code-bg); padding: 0.15em 0.4em; border-radius: 5px; }
+  .md pre {
+    background: var(--code-bg);
+    padding: 14px 16px;
+    border-radius: 8px;
+    overflow-x: auto;
+    line-height: 1.6;
+    text-align: left;
+  }
+  .md pre code { background: none; padding: 0; font-size: 1em; }
+
+  .md .table-wrap { overflow-x: auto; margin-bottom: 1em; }
+  .md table { border-collapse: collapse; margin: 0; }
+  .md th, .md td { border: 1px solid var(--border); padding: 6px 14px; }
+  .md th { background: var(--bg-soft); }
+
+  .md input[type="checkbox"] { margin-inline-end: 0.4em; }
+
+  /* formulas are always left-to-right */
+  .md .katex { direction: ltr; unicode-bidi: isolate; font-size: 1.1em; }
+  .md .math-block { direction: ltr; overflow-x: auto; overflow-y: hidden; padding: 4px 0; margin: 0 0 1em; }
+  .md .math-block .katex-display { margin: 0.4em 0; }
+
+  @media print {
+    :root, :root[data-theme="dark"] {
+      --bg: #fff; --bg-soft: #f5f6f8; --fg: #000; --muted: #555;
+      --border: #ccc; --accent: #0b63ce; --code-bg: #f1f3f5; --mark: #fff3bf;
+    }
+    header, #editor, #divider, .md .copy { display: none !important; }
+    .md pre { white-space: pre-wrap; }
+    body, main, #preview { display: block; height: auto; overflow: visible; }
+    #preview { padding: 0; }
+  }
+</style>
+</head>
+
+<body>
+<header>
+  <div class="name" id="name">MD Viewer</div>
+  <button id="btn-open" title="باز کردن فایل (‎.md)">📂 باز کردن</button>
+  <button id="btn-save" title="ذخیره به صورت فایل ‎.md">💾 ذخیره</button>
+  <button id="btn-pdf" title="چاپ یا ذخیره به صورت PDF">🖨️ PDF</button>
+  <button id="btn-dir" title="جهت متن: خودکار / راست‌به‌چپ / چپ‌به‌راست"></button>
+  <button id="btn-editor" title="نمایش/پنهان کردن ویرایشگر">✏️ ویرایشگر</button>
+  <button id="btn-theme" title="تغییر تم"></button>
+  <input type="file" id="file" accept=".md,.markdown,.mdown,.txt,text/markdown,text/plain" hidden>
+</header>
+
+<main>
+  <textarea id="editor" spellcheck="false" placeholder="متن Markdown را اینجا بنویسید یا یک فایل را به داخل صفحه بکشید…"></textarea>
+  <div id="divider"></div>
+  <div id="preview"><article class="md" id="out"></article></div>
+</main>
+
+<script type="text/markdown" id="sample"># راهنمای MD Viewer
+
+این یک نمایشگر ساده‌ی **Markdown** است که متن فارسی و English را در کنار هم درست نمایش می‌دهد.
+هر پاراگراف جهت خودش را از اولین حرف می‌گیرد.
+
+This paragraph starts in English, so it is left-to-right — even if it contains کلمات فارسی in the middle.
+
+## فرمول‌ها (LaTeX)
+
+فرمول درون‌خطی مثل $E = mc^2$ یا \(a^2 + b^2 = c^2\) وسط متن فارسی می‌آید، و فرمول جدا:
+
+$$
+\int_{-\infty}^{\infty} e^{-x^2}\,dx = \sqrt{\pi}
+$$
+
+\[
+\hat{f}(\xi) = \int_{-\infty}^{\infty} f(x)\, e^{-2\pi i x \xi}\, dx
+\]
+
+قیمت‌ها مثل $5 و $10 فرمول حساب نمی‌شوند.
+
+## فهرست و جدول
+
+- مورد اول با `inline code`
+- Second item in English
+- [x] کار انجام‌شده
+- [ ] کار باقی‌مانده
+
+| نام | Symbol | مقدار |
+|-----|:------:|------:|
+| عدد پی | $\pi$ | 3.14159 |
+| عدد اویلر | $e$ | 2.71828 |
+
+## کد
+
+```python
+def greet(name):
+    return f"سلام {name}!"
+```
+
+> نقل‌قول: برای باز کردن فایل، آن را به داخل صفحه بکشید یا دکمه‌ی «باز کردن» را بزنید.
+</script>
+
+<script src="vendor/marked.min.js"></script>
+<script src="vendor/purify.min.js"></script>
+<script src="vendor/katex.min.js"></script>
+<script>
+(function () {
+  'use strict';
+
+  var $ = function (id) { return document.getElementById(id); };
+  var editor = $('editor'), out = $('out'), nameEl = $('name');
+
+  var store = {
+    get: function (k) { try { return localStorage.getItem(k); } catch (e) { return null; } },
+    set: function (k, v) { try { localStorage.setItem(k, v); } catch (e) {} }
+  };
+
+  /* ---------- math: tokenized by marked so markdown never mangles the TeX ---------- */
+
+  function escAttr(s) {
+    return s.replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+  }
+
+  var blockRules = [
+    /^ {0,3}\$\$([\s\S]+?)\$\$[ \t]*(?:\n+|$)/,
+    /^ {0,3}\\\[([\s\S]+?)\\\][ \t]*(?:\n+|$)/
+  ];
+  // [rule, displayMode]
+  var inlineRules = [
+    [/^\$\$([\s\S]+?)\$\$/, true],
+    [/^\\\[([\s\S]+?)\\\]/, true],
+    [/^\\\(([\s\S]+?)\\\)/, false],
+    // $...$: no space just inside the dollars and no digit right after, so "$5 and $10" stays text
+    [/^\$(?!\s)((?:\\.|[^$\\\n])*?(?:\\.|[^$\\\n\s]))\$(?!\d)/, false]
+  ];
+
+  marked.use({
+    gfm: true,
+    extensions: [
+      {
+        name: 'mathBlock',
+        level: 'block',
+        start: function (src) {
+          var m = src.match(/^ {0,3}(?:\$\$|\\\[)/m);
+          return m ? m.index : undefined;
+        },
+        tokenizer: function (src) {
+          for (var i = 0; i < blockRules.length; i++) {
+            var m = blockRules[i].exec(src);
+            if (m) return { type: 'mathBlock', raw: m[0], tex: m[1].trim() };
+          }
+        },
+        renderer: function (t) {
+          return '<div class="math-block" data-tex="' + escAttr(t.tex) + '"></div>\n';
+        }
+      },
+      {
+        name: 'mathInline',
+        level: 'inline',
+        start: function (src) {
+          var i = src.search(/\$|\\[(\[]/);
+          return i < 0 ? undefined : i;
+        },
+        tokenizer: function (src) {
+          for (var i = 0; i < inlineRules.length; i++) {
+            var m = inlineRules[i][0].exec(src);
+            if (m) return { type: 'mathInline', raw: m[0], tex: m[1].trim(), display: inlineRules[i][1] };
+          }
+        },
+        renderer: function (t) {
+          return '<span class="math-inline" data-tex="' + escAttr(t.tex) + '"' +
+                 (t.display ? ' data-display="1"' : '') + '></span>';
+        }
+      }
+    ]
+  });
+
+  /* ---------- render ---------- */
+
+  var DIR_LABEL = { auto: '↔ خودکار', rtl: '← راست‌به‌چپ', ltr: '→ چپ‌به‌راست' };
+  var dirMode = store.get('mdv-dir');
+  if (!DIR_LABEL[dirMode]) dirMode = 'auto';
+
+  function applyDir() {
+    $('btn-dir').textContent = DIR_LABEL[dirMode];
+    if (dirMode === 'auto') editor.removeAttribute('dir');
+    else editor.setAttribute('dir', dirMode);
+  }
+
+  var AUTO_DIR = 'h1,h2,h3,h4,h5,h6,p,ul,ol,li,blockquote,table,th,td,dt,dd';
+
+  function render() {
+    // Sanitize the markdown output first, then let KaTeX fill in the formulas.
+    out.innerHTML = DOMPurify.sanitize(marked.parse(editor.value));
+
+    out.querySelectorAll('.math-block, .math-inline').forEach(function (el) {
+      var display = el.classList.contains('math-block') || el.dataset.display === '1';
+      try {
+        katex.render(el.dataset.tex || '', el, { displayMode: display, throwOnError: false });
+      } catch (e) {
+        el.textContent = el.dataset.tex;
+      }
+    });
+
+    // Per-block direction: in auto mode Persian blocks become RTL, English ones LTR.
+    out.querySelectorAll(AUTO_DIR).forEach(function (el) {
+      el.setAttribute('dir', dirMode);
+    });
+
+    out.querySelectorAll('table').forEach(function (t) {
+      var wrap = document.createElement('div');
+      wrap.className = 'table-wrap';
+      wrap.dir = dirMode;
+      t.parentNode.insertBefore(wrap, t);
+      wrap.appendChild(t);
+    });
+
+    out.querySelectorAll('pre').forEach(function (pre) {
+      var wrap = document.createElement('div');
+      wrap.className = 'code-wrap';
+      pre.parentNode.insertBefore(wrap, pre);
+      wrap.appendChild(pre);
+      var b = document.createElement('button');
+      b.className = 'copy';
+      b.textContent = 'کپی';
+      b.addEventListener('click', function () {
+        navigator.clipboard.writeText(pre.textContent).then(function () {
+          b.textContent = '✓';
+          setTimeout(function () { b.textContent = 'کپی'; }, 1200);
+        });
+      });
+      wrap.appendChild(b);
+    });
+
+    out.querySelectorAll('a[href]').forEach(function (a) {
+      if (/^https?:/i.test(a.getAttribute('href'))) { a.target = '_blank'; a.rel = 'noopener noreferrer'; }
+    });
+  }
+
+  var timer;
+  editor.addEventListener('input', function () {
+    clearTimeout(timer);
+    timer = setTimeout(function () {
+      render();
+      store.set('mdv-text', editor.value);
+    }, 120);
+  });
+
+  /* ---------- files ---------- */
+
+  function setName(n) {
+    nameEl.textContent = n || 'MD Viewer';
+    document.title = n ? n + ' — MD Viewer' : 'MD Viewer';
+    store.set('mdv-name', n || '');
+  }
+
+  function loadFile(file) {
+    if (!file) return;
+    var r = new FileReader();
+    r.onload = function () {
+      editor.value = String(r.result);
+      store.set('mdv-text', editor.value);
+      setName(file.name);
+      render();
+      $('preview').scrollTop = 0;
+    };
+    r.readAsText(file);
+  }
+
+  $('btn-open').addEventListener('click', function () { $('file').click(); });
+  $('file').addEventListener('change', function (e) {
+    loadFile(e.target.files[0]);
+    e.target.value = '';
+  });
+
+  var dragDepth = 0;
+  function hasFiles(e) { return e.dataTransfer && Array.prototype.indexOf.call(e.dataTransfer.types, 'Files') >= 0; }
+  window.addEventListener('dragenter', function (e) {
+    if (!hasFiles(e)) return;
+    dragDepth++;
+    document.body.classList.add('dragging');
+  });
+  window.addEventListener('dragleave', function (e) {
+    if (!hasFiles(e)) return;
+    if (--dragDepth <= 0) { dragDepth = 0; document.body.classList.remove('dragging'); }
+  });
+  window.addEventListener('dragover', function (e) { if (hasFiles(e)) e.preventDefault(); });
+  window.addEventListener('drop', function (e) {
+    if (!hasFiles(e)) return;
+    e.preventDefault();
+    dragDepth = 0;
+    document.body.classList.remove('dragging');
+    loadFile(e.dataTransfer.files[0]);
+  });
+
+  /* ---------- theme & editor toggle ---------- */
+
+  var root = document.documentElement;
+  function paintThemeButton() {
+    $('btn-theme').textContent = root.dataset.theme === 'dark' ? '☀️ روشن' : '🌙 تاریک';
+  }
+  $('btn-theme').addEventListener('click', function () {
+    root.dataset.theme = root.dataset.theme === 'dark' ? 'light' : 'dark';
+    store.set('mdv-theme', root.dataset.theme);
+    paintThemeButton();
+  });
+  paintThemeButton();
+
+  if (store.get('mdv-editor') === '0') document.body.classList.add('no-editor');
+  $('btn-editor').addEventListener('click', function () {
+    var hidden = document.body.classList.toggle('no-editor');
+    store.set('mdv-editor', hidden ? '0' : '1');
+  });
+
+  $('btn-dir').addEventListener('click', function () {
+    dirMode = dirMode === 'auto' ? 'rtl' : dirMode === 'rtl' ? 'ltr' : 'auto';
+    store.set('mdv-dir', dirMode);
+    applyDir();
+    render();
+  });
+  applyDir();
+
+  /* ---------- save / print ---------- */
+
+  $('btn-save').addEventListener('click', function () {
+    var n = store.get('mdv-name') || 'document.md';
+    var a = document.createElement('a');
+    a.href = URL.createObjectURL(new Blob([editor.value], { type: 'text/markdown;charset=utf-8' }));
+    a.download = n;
+    a.click();
+    setTimeout(function () { URL.revokeObjectURL(a.href); }, 1000);
+  });
+  $('btn-pdf').addEventListener('click', function () { window.print(); });
+
+  /* ---------- resizable divider ---------- */
+
+  var mainEl = document.querySelector('main'), divider = $('divider');
+  var split = store.get('mdv-split');
+  if (split) mainEl.style.setProperty('--split', split);
+  divider.addEventListener('pointerdown', function (e) {
+    divider.setPointerCapture(e.pointerId);
+    document.body.classList.add('resizing');
+  });
+  divider.addEventListener('pointermove', function (e) {
+    if (!divider.hasPointerCapture(e.pointerId)) return;
+    var r = mainEl.getBoundingClientRect();
+    var pct = Math.min(85, Math.max(15, (e.clientX - r.left) / r.width * 100));
+    split = pct.toFixed(1) + '%';
+    mainEl.style.setProperty('--split', split);
+  });
+  divider.addEventListener('pointerup', function () {
+    document.body.classList.remove('resizing');
+    if (split) store.set('mdv-split', split);
+  });
+  divider.addEventListener('dblclick', function () {
+    mainEl.style.removeProperty('--split');
+    store.set('mdv-split', '');
+  });
+
+  /* ---------- synced scrolling (proportional) ---------- */
+
+  var preview = $('preview'), scrollLock = null;
+  function sync(from, to) {
+    from.addEventListener('scroll', function () {
+      if (scrollLock === from) { scrollLock = null; return; }
+      var max = from.scrollHeight - from.clientHeight;
+      if (max <= 0) return;
+      var top = Math.round(from.scrollTop / max * (to.scrollHeight - to.clientHeight));
+      if (Math.abs(top - to.scrollTop) < 1) return;
+      scrollLock = to;
+      to.scrollTop = top;
+    });
+  }
+  sync(editor, preview);
+  sync(preview, editor);
+
+  /* ---------- start ---------- */
+
+  var saved = store.get('mdv-text');
+  if (saved) {
+    editor.value = saved;
+    setName(store.get('mdv-name'));
+  } else {
+    editor.value = $('sample').textContent;
+  }
+  render();
+})();
+</script>
+</body>
+</html>
