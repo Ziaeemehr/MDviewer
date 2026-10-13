@@ -1,0 +1,61 @@
+/*
+ * RTL + Vazirmatn for the built-in VS Code Markdown preview.
+ *
+ * Add to VS Code user settings (syncs with Settings Sync):
+ *
+ *   "markdown.styles": [
+ *     "https://cdn.jsdelivr.net/gh/Ziaeemehr/MDviewer@main/vscode/markdown-rtl.css"
+ *   ],
+ *   "markdown.preview.fontFamily": "Vazirmatn, 'Vazirmatn Web', sans-serif"
+ */
+
+/* Fallback for machines where Vazirmatn is not installed. */
+@font-face {
+  font-family: "Vazirmatn Web";
+  src: url("https://cdn.jsdelivr.net/gh/rastikerdar/vazirmatn@v33.003/fonts/webfonts/Vazirmatn[wght].woff2")
+    format("woff2");
+  font-weight: 100 900;
+  font-style: normal;
+  font-display: swap;
+}
+
+/* Direction is detected per block from its first strong character,
+   so Persian blocks are right-aligned and English blocks stay left-aligned. */
+p,
+li,
+h1,
+h2,
+h3,
+h4,
+h5,
+h6,
+blockquote,
+td,
+th,
+dt,
+dd,
+summary {
+  unicode-bidi: plaintext;
+  text-align: start;
+}
+
+/* Code always stays left-to-right. */
+pre,
+code,
+kbd,
+samp {
+  direction: ltr;
+  unicode-bidi: embed;
+  text-align: left;
+  font-family: var(--vscode-editor-font-family, monospace);
+}
+
+pre {
+  unicode-bidi: normal;
+}
+
+.katex,
+.katex-display {
+  direction: ltr;
+  unicode-bidi: isolate;
+}
