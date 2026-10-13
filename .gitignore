@@ -1,1 +1,7 @@
 .DS_Store
+
+# desktop build output (generated in CI, see .github/workflows/release.yml)
+/dist/
+/src-tauri/target/
+/src-tauri/gen/
+/src-tauri/icons/

@@ -499,6 +499,13 @@ def greet(name):
 
   $('btn-save').addEventListener('click', function () {
     var n = store.get('mdv-name') || 'document.md';
+    // Desktop app: use a native save dialog instead of a browser download.
+    var tauri = window.__TAURI__;
+    if (tauri && tauri.core) {
+      tauri.core.invoke('save_markdown', { name: n, contents: editor.value })
+        .catch(function (err) { alert(err); });
+      return;
+    }
     var a = document.createElement('a');
     a.href = URL.createObjectURL(new Blob([editor.value], { type: 'text/markdown;charset=utf-8' }));
     a.download = n;
