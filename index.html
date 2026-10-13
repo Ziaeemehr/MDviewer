@@ -106,6 +106,41 @@
   }
   button:hover { border-color: var(--accent); color: var(--accent); }
 
+  /* ---------- tabs ---------- */
+  #tabs {
+    display: flex;
+    flex: none;
+    gap: 2px;
+    padding: 4px 8px 0;
+    background: var(--bg-soft);
+    border-bottom: 1px solid var(--border);
+    overflow-x: auto;
+    overflow-y: hidden;
+  }
+  .tab {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    max-width: 240px;
+    padding: 4px 10px;
+    padding-inline-end: 4px;
+    font-size: 14px;
+    color: var(--muted);
+    border: 1px solid transparent;
+    border-bottom: 0;
+    border-radius: 8px 8px 0 0;
+    cursor: pointer;
+    white-space: nowrap;
+  }
+  .tab:hover { color: var(--fg); }
+  .tab.active { background: var(--bg); color: var(--fg); border-color: var(--border); }
+  .tab-name { overflow: hidden; text-overflow: ellipsis; unicode-bidi: plaintext; }
+  .tab.dirty .tab-name::before { content: "● "; color: var(--accent); }
+  #tabs button { border: 0; background: none; padding: 0 7px; border-radius: 6px; color: var(--muted); }
+  #tabs button:hover { background: var(--border); color: var(--fg); }
+  #tabs .tab-close.confirm { background: #c62828; color: #fff; font-size: 12px; padding: 1px 8px; }
+  #tab-new { align-self: center; font-size: 16px; }
+
   /* ---------- layout ---------- */
   main { flex: 1; display: flex; min-height: 0; direction: ltr; }
   #editor, #preview { min-width: 0; height: 100%; }
@@ -236,7 +271,7 @@
       --hl-comment: #6e7781; --hl-keyword: #cf222e; --hl-string: #0a3069; --hl-number: #0550ae;
       --hl-title: #8250df; --hl-builtin: #953800; --hl-tag: #116329;
     }
-    header, #editor, #divider, .md .copy { display: none !important; }
+    header, #tabs, #editor, #divider, .md .copy { display: none !important; }
     .md pre { white-space: pre-wrap; }
     body, main, #preview { display: block; height: auto; overflow: visible; }
     #preview { padding: 0; }
@@ -247,14 +282,16 @@
 <body>
 <header>
   <div class="name" id="name">MD Viewer</div>
-  <button id="btn-open" title="باز کردن فایل (‎.md)">📂 باز کردن</button>
-  <button id="btn-save" title="ذخیره به صورت فایل ‎.md">💾 ذخیره</button>
+  <button id="btn-open" title="باز کردن فایل ‎.md (Ctrl+O)">📂 باز کردن</button>
+  <button id="btn-save" title="ذخیره به صورت فایل ‎.md (Ctrl+S)">💾 ذخیره</button>
   <button id="btn-pdf" title="چاپ یا ذخیره به صورت PDF">🖨️ PDF</button>
   <button id="btn-dir" title="جهت متن: خودکار / راست‌به‌چپ / چپ‌به‌راست"></button>
   <button id="btn-editor" title="نمایش/پنهان کردن ویرایشگر">✏️ ویرایشگر</button>
   <button id="btn-theme" title="تغییر تم"></button>
-  <input type="file" id="file" accept=".md,.markdown,.mdown,.txt,text/markdown,text/plain" hidden>
+  <input type="file" id="file" accept=".md,.markdown,.mdown,.txt,text/markdown,text/plain" multiple hidden>
 </header>
+
+<nav id="tabs"></nav>
 
 <main>
   <textarea id="editor" spellcheck="false" placeholder="متن Markdown را اینجا بنویسید یا یک فایل را به داخل صفحه بکشید…"></textarea>
@@ -459,39 +496,193 @@ println(sum(f, 1:10))
     });
   }
 
+  /* ---------- tabs: each open document keeps its own text, file location and scroll ---------- */
+
+  var tabsEl = $('tabs'), preview = $('preview');
+  var tabs = [], active = null, seq = 0, restoring = false;
+
+  function newTab(d) {
+    d = d || {};
+    return {
+      id: ++seq, name: d.name || '', text: d.text || '', dirty: !!d.dirty,
+      path: d.path || null,      // desktop app: full path of the file on disk
+      handle: d.handle || null,  // Chrome/Edge: file handle (lost on reload)
+      top: 0, ptop: 0
+    };
+  }
+
+  function persist() {
+    store.set('mdv-tabs', JSON.stringify(tabs.map(function (t) {
+      return { name: t.name, text: t.text, path: t.path, dirty: t.dirty };
+    })));
+    store.set('mdv-active', String(tabs.indexOf(active)));
+  }
+
+  function paintTabs() {
+    tabsEl.textContent = '';
+    tabs.forEach(function (tab) {
+      var el = document.createElement('div');
+      el.className = 'tab' + (tab === active ? ' active' : '') + (tab.dirty ? ' dirty' : '');
+      el.title = tab.path || tab.name;
+      var n = document.createElement('span');
+      n.className = 'tab-name';
+      n.textContent = tab.name || 'بدون نام';
+      var x = document.createElement('button');
+      x.className = 'tab-close' + (tab.confirm ? ' confirm' : '');
+      x.textContent = tab.confirm ? 'بدون ذخیره بسته شود؟' : '×';
+      x.title = 'بستن تب (Ctrl+W)';
+      x.addEventListener('click', function (e) { e.stopPropagation(); closeTab(tab); });
+      el.addEventListener('click', function () { activate(tab); });
+      el.addEventListener('auxclick', function (e) { if (e.button === 1) closeTab(tab); });
+      el.appendChild(n);
+      el.appendChild(x);
+      tabsEl.appendChild(el);
+    });
+    var add = document.createElement('button');
+    add.id = 'tab-new';
+    add.textContent = '+';
+    add.title = 'تب جدید (Ctrl+N)';
+    add.addEventListener('click', function () { addTab(); });
+    tabsEl.appendChild(add);
+
+    nameEl.textContent = active.name || 'MD Viewer';
+    document.title = active.name ? active.name + ' — MD Viewer' : 'MD Viewer';
+  }
+
+  function activate(tab) {
+    if (active) { active.top = editor.scrollTop; active.ptop = preview.scrollTop; }
+    active = tab;
+    editor.value = tab.text;
+    render();
+    // put both panes back where this tab was, without the scroll sync fighting it
+    restoring = true;
+    editor.scrollTop = tab.top;
+    preview.scrollTop = tab.ptop;
+    setTimeout(function () { restoring = false; }, 100);
+    paintTabs();
+    persist();
+  }
+
+  function addTab(d) {
+    var tab = newTab(d);
+    tabs.push(tab);
+    activate(tab);
+  }
+
+  function closeTab(tab) {
+    var i = tabs.indexOf(tab);
+    if (i < 0) return;
+    // unsaved text: the first click only arms the button, the second one closes
+    if (tab.dirty && tab.text && !tab.confirm) {
+      tab.confirm = true;
+      paintTabs();
+      setTimeout(function () {
+        if (tab.confirm) { tab.confirm = false; paintTabs(); }
+      }, 3000);
+      return;
+    }
+    tab.confirm = false;
+    tabs.splice(i, 1);
+    if (!tabs.length) tabs.push(newTab());
+    if (tab === active) {
+      active = null;
+      activate(tabs[Math.min(i, tabs.length - 1)]);
+    } else {
+      paintTabs();
+      persist();
+    }
+  }
+
+  function cycleTab(step) {
+    activate(tabs[(tabs.indexOf(active) + step + tabs.length) % tabs.length]);
+  }
+
   var timer;
   editor.addEventListener('input', function () {
+    active.text = editor.value;
+    if (!active.dirty) { active.dirty = true; paintTabs(); }
     clearTimeout(timer);
     timer = setTimeout(function () {
       render();
-      store.set('mdv-text', editor.value);
+      persist();
     }, 120);
   });
 
   /* ---------- files ---------- */
 
-  function setName(n) {
-    nameEl.textContent = n || 'MD Viewer';
-    document.title = n ? n + ' — MD Viewer' : 'MD Viewer';
-    store.set('mdv-name', n || '');
+  var FILE_TYPES = [{
+    description: 'Markdown',
+    accept: { 'text/markdown': ['.md', '.markdown', '.mdown'], 'text/plain': ['.txt'] }
+  }];
+
+  function report(err) {
+    if (!err || err.name !== 'AbortError') alert(err);
   }
 
-  function loadFile(file) {
-    if (!file) return;
-    var r = new FileReader();
-    r.onload = function () {
-      editor.value = String(r.result);
-      store.set('mdv-text', editor.value);
-      setName(file.name);
-      render();
-      $('preview').scrollTop = 0;
-    };
-    r.readAsText(file);
+  // The tab that already shows this file, if any.
+  function sameFile(d) {
+    if (d.path) return Promise.resolve(tabs.filter(function (t) { return t.path === d.path; })[0]);
+    if (!d.handle) return Promise.resolve(null);
+    return Promise.all(tabs.map(function (t) {
+      return t.handle ? t.handle.isSameEntry(d.handle) : false;
+    })).then(function (same) { return tabs[same.indexOf(true)]; });
   }
 
-  $('btn-open').addEventListener('click', function () { $('file').click(); });
+  // Show a document in a tab: its existing tab, the untouched starting tab, or a new one.
+  function openDoc(d) {
+    return sameFile(d).then(function (tab) {
+      if (tab) {
+        if (!tab.dirty) tab.text = d.text;
+      } else {
+        tab = newTab(d);
+        var blank = !active.dirty && !active.name && !active.path && !active.handle;
+        if (blank) { tabs.splice(tabs.indexOf(active), 1, tab); active = null; }
+        else tabs.push(tab);
+      }
+      activate(tab);
+    });
+  }
+
+  function openDocs(docs) {
+    return docs.reduce(function (p, d) {
+      return p.then(function () { return openDoc(d); });
+    }, Promise.resolve());
+  }
+
+  // File objects from the file input or a drop; the browser hides where they live.
+  function openFileObjects(files) {
+    return Promise.all(Array.prototype.map.call(files, function (f) {
+      return f.text().then(function (text) { return { name: f.name, text: text }; });
+    })).then(openDocs).catch(report);
+  }
+
+  function openFiles() {
+    // Desktop app: a native dialog, so the file's path is known for saving later.
+    var tauri = window.__TAURI__;
+    if (tauri && tauri.core) {
+      tauri.core.invoke('open_markdown', { path: active.path }).then(function (files) {
+        return openDocs(files.map(function (f) { return { name: f.name, path: f.path, text: f.contents }; }));
+      }).catch(report);
+      return;
+    }
+    if (window.showOpenFilePicker) {
+      var opts = { id: 'mdv', multiple: true, types: FILE_TYPES };
+      if (active.handle) opts.startIn = active.handle;
+      window.showOpenFilePicker(opts).then(function (handles) {
+        return Promise.all(handles.map(function (h) {
+          return h.getFile()
+            .then(function (f) { return f.text(); })
+            .then(function (text) { return { name: h.name, handle: h, text: text }; });
+        }));
+      }).then(openDocs).catch(report);
+      return;
+    }
+    $('file').click();
+  }
+
+  $('btn-open').addEventListener('click', openFiles);
   $('file').addEventListener('change', function (e) {
-    loadFile(e.target.files[0]);
+    openFileObjects(e.target.files);
     e.target.value = '';
   });
 
@@ -512,7 +703,7 @@ println(sum(f, 1:10))
     e.preventDefault();
     dragDepth = 0;
     document.body.classList.remove('dragging');
-    loadFile(e.dataTransfer.files[0]);
+    openFileObjects(e.dataTransfer.files);
   });
 
   /* ---------- theme & editor toggle ---------- */
@@ -544,22 +735,73 @@ println(sum(f, 1:10))
 
   /* ---------- save / print ---------- */
 
-  $('btn-save').addEventListener('click', function () {
-    var n = store.get('mdv-name') || 'document.md';
-    // Desktop app: use a native save dialog instead of a browser download.
+  function markSaved(tab, d) {
+    if (d.name) tab.name = d.name;
+    if (d.path) tab.path = d.path;
+    if (d.handle) tab.handle = d.handle;
+    tab.dirty = false;
+    paintTabs();
+    persist();
+    flashSave('✓ ذخیره شد');
+  }
+
+  function flashSave(msg) {
+    var b = $('btn-save');
+    b.textContent = msg;
+    setTimeout(function () { b.textContent = '💾 ذخیره'; }, 1200);
+  }
+
+  function saveTab() {
+    var tab = active, text = tab.text, n = tab.name || 'document.md';
+    // Nothing changed since the file was opened or last saved: no dialog.
+    if (tab.name && !tab.dirty) { flashSave('✓ بدون تغییر'); return; }
+
+    // Desktop app: a native save dialog that starts in the file's own folder.
     var tauri = window.__TAURI__;
     if (tauri && tauri.core) {
-      tauri.core.invoke('save_markdown', { name: n, contents: editor.value })
-        .catch(function (err) { alert(err); });
+      tauri.core.invoke('save_markdown', { name: n, path: tab.path, contents: text }).then(function (path) {
+        if (path) markSaved(tab, { path: path, name: path.split(/[\\/]/).pop() });
+      }).catch(report);
+      return;
+    }
+    if (window.showSaveFilePicker) {
+      var opts = { id: 'mdv', suggestedName: n, types: FILE_TYPES }, handle;
+      if (tab.handle) opts.startIn = tab.handle;
+      window.showSaveFilePicker(opts)
+        .then(function (h) { handle = h; return h.createWritable(); })
+        .then(function (w) { return w.write(text).then(function () { return w.close(); }); })
+        .then(function () { markSaved(tab, { handle: handle, name: handle.name }); })
+        .catch(report);
       return;
     }
     var a = document.createElement('a');
-    a.href = URL.createObjectURL(new Blob([editor.value], { type: 'text/markdown;charset=utf-8' }));
+    a.href = URL.createObjectURL(new Blob([text], { type: 'text/markdown;charset=utf-8' }));
     a.download = n;
     a.click();
     setTimeout(function () { URL.revokeObjectURL(a.href); }, 1000);
-  });
+    markSaved(tab, {});
+  }
+
+  $('btn-save').addEventListener('click', saveTab);
   $('btn-pdf').addEventListener('click', function () { window.print(); });
+
+  /* ---------- keyboard shortcuts ---------- */
+
+  // Matched by physical key (e.code) so they also work on the Persian layout.
+  // Browsers keep Ctrl+N/W/Tab for themselves; those three only reach us in the desktop app.
+  window.addEventListener('keydown', function (e) {
+    if (!(e.ctrlKey || e.metaKey) || e.altKey) return;
+    var run = {
+      KeyO: openFiles,
+      KeyS: saveTab,
+      KeyN: function () { addTab(); },
+      KeyW: function () { closeTab(active); },
+      Tab: function () { cycleTab(e.shiftKey ? -1 : 1); }
+    }[e.code];
+    if (!run || (e.shiftKey && e.code !== 'Tab')) return;
+    e.preventDefault();
+    run();
+  });
 
   /* ---------- resizable divider ---------- */
 
@@ -588,9 +830,10 @@ println(sum(f, 1:10))
 
   /* ---------- synced scrolling (proportional) ---------- */
 
-  var preview = $('preview'), scrollLock = null;
+  var scrollLock = null;
   function sync(from, to) {
     from.addEventListener('scroll', function () {
+      if (restoring) return;
       if (scrollLock === from) { scrollLock = null; return; }
       var max = from.scrollHeight - from.clientHeight;
       if (max <= 0) return;
@@ -605,14 +848,18 @@ println(sum(f, 1:10))
 
   /* ---------- start ---------- */
 
-  var saved = store.get('mdv-text');
-  if (saved) {
-    editor.value = saved;
-    setName(store.get('mdv-name'));
+  var restored = null;
+  try { restored = JSON.parse(store.get('mdv-tabs')); } catch (e) {}
+  if (Array.isArray(restored) && restored.length) {
+    tabs = restored.map(function (d) { return newTab(d); });
+  } else if (store.get('mdv-text')) {
+    // text kept by a version that had a single document
+    var oldName = store.get('mdv-name');
+    tabs = [newTab({ name: oldName, text: store.get('mdv-text'), dirty: !oldName })];
   } else {
-    editor.value = $('sample').textContent;
+    tabs = [newTab({ text: $('sample').textContent })];
   }
-  render();
+  activate(tabs[+store.get('mdv-active')] || tabs[0]);
 })();
 </script>
 </body>
