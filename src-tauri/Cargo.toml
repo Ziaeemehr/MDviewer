@@ -1,6 +1,6 @@
 [package]
 name = "mdviewer"
-version = "0.3.0"
+version = "0.3.1"
 description = "Lightweight Markdown viewer for mixed Persian/English text with LaTeX"
 authors = ["Abolfazl Ziaeemehr"]
 edition = "2021"
