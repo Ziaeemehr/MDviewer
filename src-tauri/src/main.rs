@@ -1,7 +1,9 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 use std::path::{Path, PathBuf};
+use std::sync::Mutex;
 
+use tauri::{Emitter, Manager};
 use tauri_plugin_dialog::DialogExt;
 
 /// Folder of a file the app already knows, used as the starting point of a dialog.
@@ -15,6 +17,40 @@ struct OpenedFile {
     path: String,
     name: String,
     contents: String,
+}
+
+fn read_file(path: &Path) -> Result<OpenedFile, String> {
+    let contents =
+        std::fs::read_to_string(path).map_err(|e| format!("{}: {}", path.display(), e))?;
+    Ok(OpenedFile {
+        name: path
+            .file_name()
+            .map(|n| n.to_string_lossy().into_owned())
+            .unwrap_or_default(),
+        path: path.to_string_lossy().into_owned(),
+        contents,
+    })
+}
+
+/// Files the system asked the app to open (double click, "Open With", command line),
+/// kept until the window takes them with `pending_files`.
+#[derive(Default)]
+struct Pending(Mutex<Vec<PathBuf>>);
+
+fn queue_files(app: &tauri::AppHandle, paths: Vec<PathBuf>) {
+    if paths.is_empty() {
+        return;
+    }
+    app.state::<Pending>().0.lock().unwrap().extend(paths);
+    // The window may not be listening yet; it also asks once when it starts.
+    let _ = app.emit("files-pending", ());
+}
+
+/// Hand over the files queued by the system, emptying the queue.
+#[tauri::command]
+fn pending_files(pending: tauri::State<Pending>) -> Result<Vec<OpenedFile>, String> {
+    let paths = std::mem::take(&mut *pending.0.lock().unwrap());
+    paths.iter().map(|p| read_file(p)).collect()
 }
 
 /// Let the user pick one or more files and return their contents with their paths.
@@ -35,16 +71,7 @@ async fn open_markdown(
     let mut files = Vec::new();
     for picked in dialog.blocking_pick_files().unwrap_or_default() {
         let path = picked.into_path().map_err(|e| e.to_string())?;
-        let contents = std::fs::read_to_string(&path)
-            .map_err(|e| format!("{}: {}", path.display(), e))?;
-        files.push(OpenedFile {
-            name: path
-                .file_name()
-                .map(|n| n.to_string_lossy().into_owned())
-                .unwrap_or_default(),
-            path: path.to_string_lossy().into_owned(),
-            contents,
-        });
+        files.push(read_file(&path)?);
     }
     Ok(files)
 }
@@ -81,7 +108,26 @@ async fn save_markdown(
 fn main() {
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
-        .invoke_handler(tauri::generate_handler![open_markdown, save_markdown])
-        .run(tauri::generate_context!())
-        .expect("error while running MD Viewer");
+        .manage(Pending::default())
+        .invoke_handler(tauri::generate_handler![
+            open_markdown,
+            save_markdown,
+            pending_files
+        ])
+        .setup(|app| {
+            // Windows and Linux pass the double-clicked file as an argument.
+            let args = std::env::args_os().skip(1).map(PathBuf::from);
+            queue_files(app.handle(), args.filter(|p| p.is_file()).collect());
+            Ok(())
+        })
+        .build(tauri::generate_context!())
+        .expect("error while running MD Viewer")
+        .run(|_app, _event| {
+            // macOS sends the file as an event, also while the app is already running.
+            #[cfg(target_os = "macos")]
+            if let tauri::RunEvent::Opened { urls } = _event {
+                let paths = urls.iter().filter_map(|u| u.to_file_path().ok());
+                queue_files(_app, paths.collect());
+            }
+        });
 }

@@ -860,6 +860,21 @@ println(sum(f, 1:10))
     tabs = [newTab({ text: $('sample').textContent })];
   }
   activate(tabs[+store.get('mdv-active')] || tabs[0]);
+
+  // Desktop app: files opened from the system (double click, "Open With") wait in the
+  // backend; take them now and whenever it announces more.
+  var tauri = window.__TAURI__;
+  if (tauri && tauri.core) {
+    var opening = Promise.resolve();
+    var takePending = function () {
+      opening = opening.then(function () {
+        return tauri.core.invoke('pending_files');
+      }).then(function (files) {
+        return openDocs(files.map(function (f) { return { name: f.name, path: f.path, text: f.contents }; }));
+      }).catch(report);
+    };
+    tauri.event.listen('files-pending', takePending).then(takePending, takePending);
+  }
 })();
 </script>
 </body>
