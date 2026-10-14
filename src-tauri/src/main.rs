@@ -105,8 +105,26 @@ async fn save_markdown(
     }
 }
 
+/// Files named on a command line, as canonical paths so a file already open in a tab is
+/// recognised however it was named. `cwd` is where that command ran.
+fn file_args(args: impl IntoIterator<Item = PathBuf>, cwd: &Path) -> Vec<PathBuf> {
+    args.into_iter()
+        .filter_map(|p| std::fs::canonicalize(cwd.join(p)).ok())
+        .filter(|p| p.is_file())
+        .collect()
+}
+
 fn main() {
     tauri::Builder::default()
+        // Must come first: a second launch hands its files to the running window and exits.
+        .plugin(tauri_plugin_single_instance::init(|app, argv, cwd| {
+            let args = argv.into_iter().skip(1).map(PathBuf::from);
+            queue_files(app, file_args(args, Path::new(&cwd)));
+            if let Some(window) = app.get_webview_window("main") {
+                let _ = window.unminimize();
+                let _ = window.set_focus();
+            }
+        }))
         .plugin(tauri_plugin_dialog::init())
         .manage(Pending::default())
         .invoke_handler(tauri::generate_handler![
@@ -117,7 +135,8 @@ fn main() {
         .setup(|app| {
             // Windows and Linux pass the double-clicked file as an argument.
             let args = std::env::args_os().skip(1).map(PathBuf::from);
-            queue_files(app.handle(), args.filter(|p| p.is_file()).collect());
+            let cwd = std::env::current_dir().unwrap_or_default();
+            queue_files(app.handle(), file_args(args, &cwd));
             Ok(())
         })
         .build(tauri::generate_context!())
