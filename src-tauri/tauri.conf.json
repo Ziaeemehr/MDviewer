@@ -45,6 +45,14 @@
     ],
     "macOS": {
       "signingIdentity": "-"
+    },
+    "linux": {
+      "deb": {
+        "desktopTemplate": "mdviewer.desktop"
+      },
+      "rpm": {
+        "desktopTemplate": "mdviewer.desktop"
+      }
     }
   }
 }
