@@ -186,6 +186,11 @@
     button { padding: 5px 9px; }
     header .name { flex-basis: 100%; }
   }
+  /* touch screens: larger targets for the small tab buttons */
+  @media (pointer: coarse) {
+    .tab { padding-block: 8px; }
+    #tabs button { padding: 4px 10px; }
+  }
 
   /* ---------- rendered markdown ---------- */
   .md { max-width: 820px; margin: 0 auto; font-size: 17px; line-height: 2; overflow-wrap: break-word; }
@@ -787,6 +792,8 @@ println(sum(f, 1:10))
 
   $('btn-save').addEventListener('click', saveTab);
   $('btn-pdf').addEventListener('click', function () { window.print(); });
+  // The Android WebView has no print dialog, so the button would do nothing there.
+  if (window.__TAURI__ && /Android/.test(navigator.userAgent)) $('btn-pdf').hidden = true;
 
   /* ---------- keyboard shortcuts ---------- */
 
