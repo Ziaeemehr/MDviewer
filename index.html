@@ -2,7 +2,7 @@
 <html lang="fa" dir="rtl">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>MD Viewer</title>
 
 <link rel="stylesheet" href="vendor/katex.min.css">
@@ -70,6 +70,9 @@
     font-family: Vazirmatn, system-ui, -apple-system, "Segoe UI", Tahoma, sans-serif;
     color-scheme: light;
     overflow: hidden;  /* only the panes scroll, never the window */
+    /* Android 15+ draws the app under the status and navigation bars */
+    padding: env(safe-area-inset-top) env(safe-area-inset-right)
+      env(safe-area-inset-bottom) env(safe-area-inset-left);
   }
   :root[data-theme="dark"] body { color-scheme: dark; }
 
@@ -183,8 +186,10 @@
     #divider { display: none; }
     #editor { border-bottom: 1px solid var(--border); flex: 0 0 40%; height: auto; }
     #preview { padding: 20px 16px 60px; height: auto; }
-    button { padding: 5px 9px; }
-    header .name { flex-basis: 100%; }
+    /* icons only, so the toolbar stays on one line */
+    header { flex-wrap: nowrap; gap: 6px; }
+    header .label { display: none; }
+    header button { padding: 5px 8px; }
   }
   /* touch screens: larger targets for the small tab buttons */
   @media (pointer: coarse) {
@@ -364,6 +369,21 @@ println(sum(f, 1:10))
   'use strict';
 
   var $ = function (id) { return document.getElementById(id); };
+
+  // Toolbar labels are "icon text"; the text is hidden on narrow screens, so it is kept
+  // in its own span and also given as the accessible name.
+  function setLabel(b, s) {
+    var i = s.indexOf(' ');
+    var icon = document.createElement('span'), text = document.createElement('span');
+    icon.textContent = s.slice(0, i);
+    text.textContent = s.slice(i + 1);
+    text.className = 'label';
+    b.replaceChildren(icon, text);
+    b.setAttribute('aria-label', text.textContent);
+  }
+  ['btn-open', 'btn-save', 'btn-pdf', 'btn-editor'].forEach(function (id) {
+    setLabel($(id), $(id).textContent);
+  });
   var editor = $('editor'), out = $('out'), nameEl = $('name');
 
   var store = {
@@ -440,7 +460,7 @@ println(sum(f, 1:10))
   if (!DIR_LABEL[dirMode]) dirMode = 'auto';
 
   function applyDir() {
-    $('btn-dir').textContent = DIR_LABEL[dirMode];
+    setLabel($('btn-dir'), DIR_LABEL[dirMode]);
     if (dirMode === 'auto') editor.removeAttribute('dir');
     else editor.setAttribute('dir', dirMode);
   }
@@ -718,7 +738,7 @@ println(sum(f, 1:10))
 
   var root = document.documentElement;
   function paintThemeButton() {
-    $('btn-theme').textContent = root.dataset.theme === 'dark' ? '☀️ روشن' : '🌙 تاریک';
+    setLabel($('btn-theme'), root.dataset.theme === 'dark' ? '☀️ روشن' : '🌙 تاریک');
   }
   $('btn-theme').addEventListener('click', function () {
     root.dataset.theme = root.dataset.theme === 'dark' ? 'light' : 'dark';
@@ -755,8 +775,8 @@ println(sum(f, 1:10))
 
   function flashSave(msg) {
     var b = $('btn-save');
-    b.textContent = msg;
-    setTimeout(function () { b.textContent = '💾 ذخیره'; }, 1200);
+    setLabel(b, msg);
+    setTimeout(function () { setLabel(b, '💾 ذخیره'); }, 1200);
   }
 
   function saveTab() {
@@ -767,8 +787,8 @@ println(sum(f, 1:10))
     // Desktop app: a native save dialog that starts in the file's own folder.
     var tauri = window.__TAURI__;
     if (tauri && tauri.core) {
-      tauri.core.invoke('save_markdown', { name: n, path: tab.path, contents: text }).then(function (path) {
-        if (path) markSaved(tab, { path: path, name: path.split(/[\\/]/).pop() });
+      tauri.core.invoke('save_markdown', { name: n, path: tab.path, contents: text }).then(function (saved) {
+        if (saved) markSaved(tab, saved);
       }).catch(report);
       return;
     }

@@ -1,7 +1,7 @@
 use std::path::{Path, PathBuf};
 use std::sync::Mutex;
 
-use std::io::Write;
+use std::io::{Read, Write};
 
 #[cfg(desktop)]
 use tauri::{Emitter, Manager};
@@ -34,14 +34,24 @@ fn read_file(path: &Path) -> Result<OpenedFile, String> {
     })
 }
 
-/// Name to show for a picked file. On Android the picker returns a `content://` URI whose
-/// last segment is an encoded document id such as `primary%3ADownload%2Fnotes.md`.
-fn picked_name(file: &FilePath) -> String {
+/// Name to show for a file picked in a dialog. On Android the dialog returns a `content://`
+/// URI whose last segment is an opaque document id, so the name is taken from the open file
+/// itself when the system exposes it, and from the URI otherwise.
+fn picked_name(file: &FilePath, _opened: &std::fs::File) -> String {
+    #[cfg(target_os = "android")]
+    {
+        use std::os::fd::AsRawFd;
+        let link = std::fs::read_link(format!("/proc/self/fd/{}", _opened.as_raw_fd()));
+        if let Some(name) = link.ok().as_deref().and_then(Path::file_name) {
+            return name.to_string_lossy().into_owned();
+        }
+    }
     match file {
         FilePath::Path(p) => p
             .file_name()
             .map(|n| n.to_string_lossy().into_owned())
             .unwrap_or_default(),
+        // e.g. `primary%3ADownload%2Fnotes.md`
         FilePath::Url(u) => {
             let last = u.path_segments().and_then(|s| s.last()).unwrap_or("");
             let id = percent_decode(last);
@@ -73,12 +83,16 @@ fn percent_decode(s: &str) -> String {
 
 /// Read a file returned by the dialog: a path on desktop, a `content://` URI on Android.
 fn read_picked(app: &tauri::AppHandle, file: FilePath) -> Result<OpenedFile, String> {
-    let contents = app
+    let mut opts = OpenOptions::new();
+    opts.read(true);
+    let mut contents = String::new();
+    let opened = app
         .fs()
-        .read_to_string(file.clone())
+        .open(file.clone(), opts)
+        .and_then(|mut f| f.read_to_string(&mut contents).map(|_| f))
         .map_err(|e| format!("{}: {}", file, e))?;
     Ok(OpenedFile {
-        name: picked_name(&file),
+        name: picked_name(&file, &opened),
         path: file.to_string(),
         contents,
     })
@@ -139,7 +153,13 @@ const MARKDOWN_SAVE_TYPES: &[&str] = &["md", "markdown", "txt"];
 #[cfg(mobile)]
 const MARKDOWN_SAVE_TYPES: &[&str] = &["text/markdown"];
 
-/// Ask where to save, then write the file. Returns the saved path, or None if the dialog
+#[derive(serde::Serialize)]
+struct SavedFile {
+    path: String,
+    name: String,
+}
+
+/// Ask where to save, then write the file. Returns where it was saved, or None if the dialog
 /// was cancelled. `path` is where the file was opened from; the dialog starts in that folder.
 /// The webview cannot download blobs reliably on every platform, so saving goes through here.
 #[tauri::command]
@@ -148,7 +168,7 @@ async fn save_markdown(
     name: String,
     path: Option<String>,
     contents: String,
-) -> Result<Option<String>, String> {
+) -> Result<Option<SavedFile>, String> {
     let mut dialog = app
         .dialog()
         .file()
@@ -162,11 +182,15 @@ async fn save_markdown(
         Some(file) => {
             let mut opts = OpenOptions::new();
             opts.write(true).create(true).truncate(true);
-            app.fs()
+            let saved = app
+                .fs()
                 .open(file.clone(), opts)
-                .and_then(|mut f| f.write_all(contents.as_bytes()))
+                .and_then(|mut f| f.write_all(contents.as_bytes()).map(|_| f))
                 .map_err(|e| format!("{}: {}", file, e))?;
-            Ok(Some(file.to_string()))
+            Ok(Some(SavedFile {
+                name: picked_name(&file, &saved),
+                path: file.to_string(),
+            }))
         }
         None => Ok(None),
     }
