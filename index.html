@@ -69,6 +69,7 @@
     color: var(--fg);
     font-family: Vazirmatn, system-ui, -apple-system, "Segoe UI", Tahoma, sans-serif;
     color-scheme: light;
+    overflow: hidden;  /* only the panes scroll, never the window */
   }
   :root[data-theme="dark"] body { color-scheme: dark; }
 
@@ -171,7 +172,9 @@
   }
   /* a forced direction (RTL/LTR button) overrides the per-line detection */
   #editor[dir] { unicode-bidi: normal; }
-  #preview { overflow: auto; padding: 28px 24px 80px; }
+  /* position: relative keeps absolutely positioned bits (KaTeX's hidden MathML) inside
+     the preview; otherwise they stretch the page itself and PageDown scrolls it off-screen */
+  #preview { position: relative; overflow: auto; padding: 28px 24px 80px; outline: 0; }
   body.no-editor #editor, body.no-editor #divider { display: none; }
   body.dragging main { outline: 3px dashed var(--accent); outline-offset: -8px; }
 
@@ -296,7 +299,7 @@
 <main>
   <textarea id="editor" spellcheck="false" placeholder="متن Markdown را اینجا بنویسید یا یک فایل را به داخل صفحه بکشید…"></textarea>
   <div id="divider"></div>
-  <div id="preview"><article class="md" id="out"></article></div>
+  <div id="preview" tabindex="-1"><article class="md" id="out"></article></div>
 </main>
 
 <script type="text/markdown" id="sample"># راهنمای MD Viewer
@@ -801,6 +804,17 @@ println(sum(f, 1:10))
     if (!run || (e.shiftKey && e.code !== 'Tab')) return;
     e.preventDefault();
     run();
+  });
+
+  // Scroll keys pressed with nothing scrollable focused (at start, or after clicking a
+  // button or a tab) would scroll nothing; hand focus to the preview so they scroll it.
+  var SCROLL_KEYS = { PageDown: 1, PageUp: 1, Home: 1, End: 1, ArrowDown: 1, ArrowUp: 1, ' ': 1 };
+  window.addEventListener('keydown', function (e) {
+    if (!SCROLL_KEYS[e.key] || e.ctrlKey || e.metaKey || e.altKey) return;
+    var el = document.activeElement;
+    var idle = !el || el === document.body ||
+      (el.tagName === 'BUTTON' && e.key !== ' ' && !preview.contains(el));
+    if (idle) preview.focus({ preventScroll: true });
   });
 
   /* ---------- resizable divider ---------- */
