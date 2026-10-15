@@ -95,19 +95,21 @@ jobs:
         with:
           node-version: 20
 
+      # Installed locally, not with -g: Gradle calls the CLI back through node with the
+      # script path, which a global install leaves as a bare "tauri".
       - name: Install Tauri CLI
-        run: npm install -g @tauri-apps/cli@2
+        run: npm install --no-save @tauri-apps/cli@2
 
       # The Android project under src-tauri/gen is generated here, like the desktop icons.
       - name: Prepare web files, Android project and icons
         run: |
           mkdir -p dist
           cp -R index.html vendor dist/
-          tauri android init --ci
-          tauri icon src-tauri/app-icon.png
+          npx tauri android init --ci
+          npx tauri icon src-tauri/app-icon.png
 
       - name: Build APK
-        run: tauri android build --apk --ci
+        run: npx tauri android build --apk --ci
 
       # Sign with the release key from the repository secrets. Without them a throwaway key
       # is used: the APK installs, but a later one signed with a different key cannot update it.
