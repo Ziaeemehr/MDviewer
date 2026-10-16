@@ -16,18 +16,22 @@ jobs:
       fail-fast: false
       matrix:
         include:
+          # Besides the installer, each build makes the signed file the in-app updater
+          # downloads: the .app as a .tar.gz on macOS, the installer itself elsewhere.
           - os: macos-latest
-            args: --target universal-apple-darwin --bundles dmg
+            args: --target universal-apple-darwin --bundles app,dmg
             rust-targets: aarch64-apple-darwin,x86_64-apple-darwin
-            out: src-tauri/target/universal-apple-darwin/release/bundle/dmg/*.dmg
+            out: |
+              src-tauri/target/universal-apple-darwin/release/bundle/dmg/*.dmg
+              src-tauri/target/universal-apple-darwin/release/bundle/macos/*.tar.gz*
           - os: windows-latest
             args: --bundles nsis
             rust-targets: ''
-            out: src-tauri/target/release/bundle/nsis/*.exe
+            out: src-tauri/target/release/bundle/nsis/*.exe*
           - os: ubuntu-22.04
             args: --bundles deb
             rust-targets: ''
-            out: src-tauri/target/release/bundle/deb/*.deb
+            out: src-tauri/target/release/bundle/deb/*.deb*
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
@@ -60,7 +64,12 @@ jobs:
           cp -R index.html vendor dist/
           tauri icon src-tauri/app-icon.png
 
+      # The updater accepts only files signed with this key; its public half is in
+      # tauri.conf.json. Without the secret the build stops.
       - name: Build installer
+        env:
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
         run: tauri build ${{ matrix.args }}
 
       - uses: actions/upload-artifact@v4
@@ -156,6 +165,34 @@ jobs:
         with:
           path: out
           merge-multiple: true
+
+      # GitHub turns spaces in asset names into dots, so the files are renamed that way here
+      # and latest.json can point at them. The installed apps read latest.json from
+      # releases/latest to learn about new versions; the signatures go into it.
+      - name: Write update manifest
+        run: |
+          version=$(jq -r .version src-tauri/tauri.conf.json)
+          cd out
+          # an artifact taken from two folders (macOS: dmg/ and macos/) keeps them
+          find . -mindepth 2 -type f -exec mv {} . \;
+          find . -mindepth 1 -type d -delete
+          shopt -s nullglob
+          for f in *' '*; do mv "$f" "${f// /.}"; done
+          mac="MD.Viewer_${version}_universal.app.tar.gz"
+          mv MD.Viewer.app.tar.gz "$mac"
+          mv MD.Viewer.app.tar.gz.sig "$mac.sig"
+          base="https://github.com/$GITHUB_REPOSITORY/releases/download/$GITHUB_REF_NAME"
+          entry() { jq -n --arg url "$base/$1" --rawfile sig "$1.sig" '{signature: ($sig | rtrimstr("\n")), url: $url}'; }
+          jq -n --arg version "$version" --arg date "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+            --argjson mac "$(entry "$mac")" \
+            --argjson win "$(entry "MD.Viewer_${version}_x64-setup.exe")" \
+            --argjson deb "$(entry "MD.Viewer_${version}_amd64.deb")" \
+            '{version: $version, pub_date: $date, platforms: {
+              "darwin-aarch64": $mac, "darwin-x86_64": $mac,
+              "windows-x86_64": $win, "windows-x86_64-nsis": $win,
+              "linux-x86_64-deb": $deb}}' > latest.json
+          rm *.sig
+          cat latest.json
 
       - name: Publish release
         env:

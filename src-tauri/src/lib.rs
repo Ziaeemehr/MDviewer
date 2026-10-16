@@ -159,16 +159,42 @@ struct SavedFile {
     name: String,
 }
 
-/// Ask where to save, then write the file. Returns where it was saved, or None if the dialog
-/// was cancelled. `path` is where the file was opened from; the dialog starts in that folder.
-/// The webview cannot download blobs reliably on every platform, so saving goes through here.
+/// Write `contents` over `file`, creating it if needed.
+fn write_file(app: &tauri::AppHandle, file: FilePath, contents: &str) -> Result<SavedFile, String> {
+    let mut opts = OpenOptions::new();
+    opts.write(true).create(true).truncate(true);
+    let saved = app
+        .fs()
+        .open(file.clone(), opts)
+        .and_then(|mut f| f.write_all(contents.as_bytes()).map(|_| f))
+        .map_err(|e| format!("{}: {}", file, e))?;
+    Ok(SavedFile {
+        name: picked_name(&file, &saved),
+        path: file.to_string(),
+    })
+}
+
+/// Save the document. `path` is where the file was opened from or last saved: unless
+/// `save_as` is set, the file is written there directly, like Save in any editor. Otherwise,
+/// or when that write fails (e.g. Android revoked access to the document), a dialog asks
+/// where to save, starting in that folder. Returns where it was saved, or None if the dialog
+/// was cancelled. The webview cannot download blobs reliably on every platform, so saving
+/// goes through here.
 #[tauri::command]
 async fn save_markdown(
     app: tauri::AppHandle,
     name: String,
     path: Option<String>,
     contents: String,
+    save_as: Option<bool>,
 ) -> Result<Option<SavedFile>, String> {
+    if let (Some(p), false) = (&path, save_as.unwrap_or(false)) {
+        let Ok(file) = p.parse::<FilePath>();
+        if let Ok(saved) = write_file(&app, file, &contents) {
+            return Ok(Some(saved));
+        }
+    }
+
     let mut dialog = app
         .dialog()
         .file()
@@ -179,21 +205,97 @@ async fn save_markdown(
     }
 
     match dialog.blocking_save_file() {
-        Some(file) => {
-            let mut opts = OpenOptions::new();
-            opts.write(true).create(true).truncate(true);
-            let saved = app
-                .fs()
-                .open(file.clone(), opts)
-                .and_then(|mut f| f.write_all(contents.as_bytes()).map(|_| f))
-                .map_err(|e| format!("{}: {}", file, e))?;
-            Ok(Some(SavedFile {
-                name: picked_name(&file, &saved),
-                path: file.to_string(),
-            }))
-        }
+        Some(file) => write_file(&app, file, &contents).map(Some),
         None => Ok(None),
     }
+}
+
+/// A newer version found by `check_update`.
+#[derive(serde::Serialize)]
+struct UpdateInfo {
+    version: String,
+    notes: Option<String>,
+}
+
+/// The update found by the last `check_update`, kept for `install_update`.
+#[cfg(desktop)]
+#[derive(Default)]
+struct PendingUpdate(Mutex<Option<tauri_plugin_updater::Update>>);
+
+/// Ask the release server whether a newer version exists. Desktop only: Android checks the
+/// GitHub releases from the page, since it is updated by installing a new APK.
+#[cfg(desktop)]
+#[tauri::command]
+async fn check_update(
+    app: tauri::AppHandle,
+    pending: tauri::State<'_, PendingUpdate>,
+) -> Result<Option<UpdateInfo>, String> {
+    use tauri_plugin_updater::UpdaterExt;
+    let update = app
+        .updater()
+        .map_err(|e| e.to_string())?
+        .check()
+        .await
+        .map_err(|e| e.to_string())?;
+    let info = update.as_ref().map(|u| UpdateInfo {
+        version: u.version.clone(),
+        notes: u.body.clone(),
+    });
+    *pending.0.lock().unwrap() = update;
+    Ok(info)
+}
+
+/// Download and install the update found by `check_update`, reporting progress as
+/// `update-progress` events (bytes so far, total if known), then restart into it.
+#[cfg(desktop)]
+#[tauri::command]
+async fn install_update(
+    app: tauri::AppHandle,
+    pending: tauri::State<'_, PendingUpdate>,
+) -> Result<(), String> {
+    let update = pending
+        .0
+        .lock()
+        .unwrap()
+        .take()
+        .ok_or("no update to install")?;
+    let mut done = 0;
+    update
+        .download_and_install(
+            |chunk, total| {
+                done += chunk as u64;
+                let _ = app.emit("update-progress", (done, total));
+            },
+            || {},
+        )
+        .await
+        .map_err(|e| e.to_string())?;
+    app.restart()
+}
+
+#[cfg(mobile)]
+#[tauri::command]
+fn check_update() -> Result<Option<UpdateInfo>, String> {
+    Err("unsupported".into())
+}
+
+#[cfg(mobile)]
+#[tauri::command]
+fn install_update() -> Result<(), String> {
+    Err("unsupported".into())
+}
+
+/// Open a release page or download in the system browser. Android uses it to fetch the new
+/// APK, which the system then offers to install.
+#[tauri::command]
+fn open_url(app: tauri::AppHandle, url: String) -> Result<(), String> {
+    use tauri_plugin_opener::OpenerExt;
+    if !url.starts_with("https://github.com/Ziaeemehr/MDviewer/") {
+        return Err(format!("refusing to open {}", url));
+    }
+    app.opener()
+        .open_url(url, None::<&str>)
+        .map_err(|e| e.to_string())
 }
 
 /// Files named on a command line, as canonical paths so a file already open in a tab is
@@ -222,13 +324,23 @@ pub fn run() {
     builder
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_fs::init())
+        .plugin(tauri_plugin_opener::init())
         .manage(Pending::default())
         .invoke_handler(tauri::generate_handler![
             open_markdown,
             save_markdown,
-            pending_files
+            pending_files,
+            check_update,
+            install_update,
+            open_url
         ])
         .setup(|_app| {
+            #[cfg(desktop)]
+            {
+                _app.handle()
+                    .plugin(tauri_plugin_updater::Builder::new().build())?;
+                _app.manage(PendingUpdate::default());
+            }
             // Windows and Linux pass the double-clicked file as an argument.
             #[cfg(desktop)]
             {

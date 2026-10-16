@@ -191,6 +191,21 @@
     header .label { display: none; }
     header button { padding: 5px 8px; }
   }
+  /* ---------- update notice ---------- */
+  #update {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 6px 12px;
+    font-size: 14px;
+    background: var(--mark);
+    border-bottom: 1px solid var(--border);
+    flex: none;
+    flex-wrap: wrap;
+  }
+  #update[hidden] { display: none; }
+  #update-msg { flex: 1; min-width: 0; }
+
   /* touch screens: larger targets for the small tab buttons */
   @media (pointer: coarse) {
     .tab { padding-block: 8px; }
@@ -284,7 +299,7 @@
       --hl-comment: #6e7781; --hl-keyword: #cf222e; --hl-string: #0a3069; --hl-number: #0550ae;
       --hl-title: #8250df; --hl-builtin: #953800; --hl-tag: #116329;
     }
-    header, #tabs, #editor, #divider, .md .copy { display: none !important; }
+    header, #update, #tabs, #editor, #divider, .md .copy { display: none !important; }
     .md pre { white-space: pre-wrap; }
     body, main, #preview { display: block; height: auto; overflow: visible; }
     #preview { padding: 0; }
@@ -296,13 +311,20 @@
 <header>
   <div class="name" id="name">MD Viewer</div>
   <button id="btn-open" title="باز کردن فایل ‎.md (Ctrl+O)">📂 باز کردن</button>
-  <button id="btn-save" title="ذخیره به صورت فایل ‎.md (Ctrl+S)">💾 ذخیره</button>
+  <button id="btn-save" title="ذخیره در همان فایل (Ctrl+S) — ذخیره با نام جدید (Ctrl+Shift+S یا Shift+کلیک)">💾 ذخیره</button>
   <button id="btn-pdf" title="چاپ یا ذخیره به صورت PDF">🖨️ PDF</button>
   <button id="btn-dir" title="جهت متن: خودکار / راست‌به‌چپ / چپ‌به‌راست"></button>
   <button id="btn-editor" title="نمایش/پنهان کردن ویرایشگر">✏️ ویرایشگر</button>
   <button id="btn-theme" title="تغییر تم"></button>
+  <button id="btn-update" title="بررسی نسخه‌ی تازه" hidden>🔄 به‌روزرسانی</button>
   <input type="file" id="file" accept=".md,.markdown,.mdown,.txt,text/markdown,text/plain" multiple hidden>
 </header>
+
+<div id="update" role="status" hidden>
+  <span id="update-msg"></span>
+  <button id="update-go" hidden></button>
+  <button id="update-close">بستن</button>
+</div>
 
 <nav id="tabs"></nav>
 
@@ -381,7 +403,7 @@ println(sum(f, 1:10))
     b.replaceChildren(icon, text);
     b.setAttribute('aria-label', text.textContent);
   }
-  ['btn-open', 'btn-save', 'btn-pdf', 'btn-editor'].forEach(function (id) {
+  ['btn-open', 'btn-save', 'btn-pdf', 'btn-editor', 'btn-update'].forEach(function (id) {
     setLabel($(id), $(id).textContent);
   });
   var editor = $('editor'), out = $('out'), nameEl = $('name');
@@ -779,27 +801,39 @@ println(sum(f, 1:10))
     setTimeout(function () { setLabel(b, '💾 ذخیره'); }, 1200);
   }
 
-  function saveTab() {
+  // Save writes back to the tab's own file when it has one; Save As (or a tab that was
+  // never saved to a known file) asks where to save.
+  function saveTab(saveAs) {
     var tab = active, text = tab.text, n = tab.name || 'document.md';
+    saveAs = saveAs === true;
     // Nothing changed since the file was opened or last saved: no dialog.
-    if (tab.name && !tab.dirty) { flashSave('✓ بدون تغییر'); return; }
+    if (!saveAs && tab.name && !tab.dirty) { flashSave('✓ بدون تغییر'); return; }
 
-    // Desktop app: a native save dialog that starts in the file's own folder.
+    // Desktop app: written in place when the path is known, else a native save dialog
+    // that starts in the file's own folder.
     var tauri = window.__TAURI__;
     if (tauri && tauri.core) {
-      tauri.core.invoke('save_markdown', { name: n, path: tab.path, contents: text }).then(function (saved) {
+      tauri.core.invoke('save_markdown', { name: n, path: tab.path, contents: text, saveAs: saveAs }).then(function (saved) {
         if (saved) markSaved(tab, saved);
       }).catch(report);
       return;
     }
     if (window.showSaveFilePicker) {
-      var opts = { id: 'mdv', suggestedName: n, types: FILE_TYPES }, handle;
-      if (tab.handle) opts.startIn = tab.handle;
-      window.showSaveFilePicker(opts)
-        .then(function (h) { handle = h; return h.createWritable(); })
-        .then(function (w) { return w.write(text).then(function () { return w.close(); }); })
-        .then(function () { markSaved(tab, { handle: handle, name: handle.name }); })
-        .catch(report);
+      var write = function (h) {
+        return h.createWritable()
+          .then(function (w) { return w.write(text).then(function () { return w.close(); }); })
+          .then(function () { markSaved(tab, { handle: h, name: h.name }); });
+      };
+      var pick = function () {
+        var opts = { id: 'mdv', suggestedName: n, types: FILE_TYPES };
+        if (tab.handle) opts.startIn = tab.handle;
+        return window.showSaveFilePicker(opts).then(write);
+      };
+      // In place first; if the browser refuses write access, fall back to the picker.
+      (tab.handle && !saveAs ? write(tab.handle).catch(function (err) {
+        if (err && err.name === 'AbortError') throw err;
+        return pick();
+      }) : pick()).catch(report);
       return;
     }
     var a = document.createElement('a');
@@ -810,10 +844,107 @@ println(sum(f, 1:10))
     markSaved(tab, {});
   }
 
-  $('btn-save').addEventListener('click', saveTab);
+  $('btn-save').addEventListener('click', function (e) { saveTab(e.shiftKey); });
   $('btn-pdf').addEventListener('click', function () { window.print(); });
   // The Android WebView has no print dialog, so the button would do nothing there.
   if (window.__TAURI__ && /Android/.test(navigator.userAgent)) $('btn-pdf').hidden = true;
+
+  /* ---------- updates ---------- */
+
+  // Desktop app: the updater downloads the signed installer from the latest GitHub release,
+  // installs it and restarts. Android: the new APK is downloaded in the browser and the
+  // system offers to install it over this one. The plain web page has nothing to update.
+  var RELEASE_API = 'https://api.github.com/repos/Ziaeemehr/MDviewer/releases/latest';
+  var DAY = 24 * 60 * 60 * 1000;
+
+  function updateNotice(msg, action, run) {
+    $('update-msg').textContent = msg;
+    var go = $('update-go');
+    go.hidden = !action;
+    go.textContent = action || '';
+    go.onclick = run || null;
+    $('update').hidden = false;
+  }
+  $('update-close').addEventListener('click', function () { $('update').hidden = true; });
+
+  // true if version a is newer than b ("0.10.0" > "0.9.1")
+  function newer(a, b) {
+    a = a.split('.').map(Number); b = b.split('.').map(Number);
+    for (var i = 0; i < Math.max(a.length, b.length); i++) {
+      if ((a[i] || 0) !== (b[i] || 0)) return (a[i] || 0) > (b[i] || 0);
+    }
+    return false;
+  }
+
+  // Resolves to { version, install } when a newer version exists, else null.
+  function findUpdate(tauri) {
+    if (/Android/.test(navigator.userAgent)) {
+      return Promise.all([
+        tauri.app.getVersion(),
+        fetch(RELEASE_API).then(function (r) {
+          if (!r.ok) throw new Error('GitHub: ' + r.status);
+          return r.json();
+        })
+      ]).then(function (res) {
+        var version = res[1].tag_name.replace(/^v/, '');
+        var apk = res[1].assets.filter(function (a) { return /\.apk$/.test(a.name); })[0];
+        if (!apk || !newer(version, res[0])) return null;
+        return {
+          version: version, action: 'دانلود و نصب',
+          install: function () {
+            return tauri.core.invoke('open_url', { url: apk.browser_download_url }).then(function () {
+              updateNotice('پس از پایان دانلود، فایل ‎.apk را باز کنید تا نسخه‌ی تازه نصب شود.');
+            });
+          }
+        };
+      });
+    }
+    return tauri.core.invoke('check_update').then(function (info) {
+      if (!info) return null;
+      return {
+        version: info.version, action: 'نصب و اجرای دوباره',
+        install: function () {
+          // Open documents, including unsaved text, come back after the restart.
+          persist();
+          updateNotice('در حال دانلود نسخه‌ی ' + info.version + '…');
+          var stop = tauri.event.listen('update-progress', function (e) {
+            var done = e.payload[0], total = e.payload[1];
+            if (total) updateNotice('در حال دانلود نسخه‌ی ' + info.version + '… ' + Math.round(done / total * 100) + '٪');
+          });
+          return tauri.core.invoke('install_update').finally(function () {
+            stop.then(function (unlisten) { unlisten(); });
+          });
+        }
+      };
+    });
+  }
+
+  // quiet: the automatic check at start, which says nothing unless it finds an update.
+  function checkUpdate(quiet) {
+    var tauri = window.__TAURI__;
+    if (!quiet) updateNotice('در حال بررسی نسخه‌ی تازه…');
+    store.set('mdv-update-check', String(Date.now()));
+    findUpdate(tauri).then(function (u) {
+      if (!u) {
+        if (!quiet) updateNotice('نسخه‌ی شما به‌روز است.');
+        return;
+      }
+      updateNotice('نسخه‌ی ' + u.version + ' آماده است.', u.action, function () {
+        $('update-go').hidden = true;
+        u.install().catch(function (err) {
+          updateNotice('به‌روزرسانی انجام نشد: ' + err, 'تلاش دوباره', function () { checkUpdate(false); });
+        });
+      });
+    }).catch(function (err) {
+      if (!quiet) updateNotice('بررسی نسخه‌ی تازه انجام نشد: ' + err);
+    });
+  }
+
+  if (window.__TAURI__) {
+    $('btn-update').hidden = false;
+    $('btn-update').addEventListener('click', function () { checkUpdate(false); });
+    if (!(Date.now() - (+store.get('mdv-update-check') || 0) < DAY)) checkUpdate(true);
+  }
 
   /* ---------- keyboard shortcuts ---------- */
 
@@ -823,12 +954,12 @@ println(sum(f, 1:10))
     if (!(e.ctrlKey || e.metaKey) || e.altKey) return;
     var run = {
       KeyO: openFiles,
-      KeyS: saveTab,
+      KeyS: function () { saveTab(e.shiftKey); },
       KeyN: function () { addTab(); },
       KeyW: function () { closeTab(active); },
       Tab: function () { cycleTab(e.shiftKey ? -1 : 1); }
     }[e.code];
-    if (!run || (e.shiftKey && e.code !== 'Tab')) return;
+    if (!run || (e.shiftKey && e.code !== 'Tab' && e.code !== 'KeyS')) return;
     e.preventDefault();
     run();
   });
