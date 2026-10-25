@@ -14,6 +14,10 @@
     try { t = localStorage.getItem('mdv-theme'); } catch (e) {}
     if (!t) t = matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
     document.documentElement.dataset.theme = t;
+    var lang = 'fa';
+    try { lang = localStorage.getItem('mdv-lang') === 'en' ? 'en' : 'fa'; } catch (e) {}
+    document.documentElement.lang = lang;
+    document.documentElement.dir = lang === 'fa' ? 'rtl' : 'ltr';
   })();
 </script>
 
@@ -110,6 +114,34 @@
   }
   button:hover { border-color: var(--accent); color: var(--accent); }
 
+  /* ---------- find ---------- */
+  #findbar {
+    display: flex;
+    flex: none;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 6px;
+    padding: 6px 12px;
+    background: var(--bg-soft);
+    border-bottom: 1px solid var(--border);
+  }
+  #findbar[hidden] { display: none; }
+  #findbar input {
+    flex: 1 1 130px;
+    min-width: 0;
+    max-width: 320px;
+    width: 130px;
+    font: inherit;
+    color: var(--fg);
+    background: var(--bg);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 5px 8px;
+  }
+  #find-case[aria-pressed="true"] { color: var(--accent); border-color: var(--accent); }
+  #find-count { font-size: 13px; color: var(--muted); }
+  #find-text[aria-invalid="true"] { border-color: #c62828; outline-color: #c62828; }
+
   /* ---------- tabs ---------- */
   #tabs {
     display: flex;
@@ -187,9 +219,9 @@
     #editor { border-bottom: 1px solid var(--border); flex: 0 0 40%; height: auto; }
     #preview { padding: 20px 16px 60px; height: auto; }
     /* icons only, so the toolbar stays on one line */
-    header { flex-wrap: nowrap; gap: 6px; }
-    header .label { display: none; }
-    header button { padding: 5px 8px; }
+    header { flex-wrap: nowrap; gap: 4px; padding: 8px; }
+    header .label, #findbar .label { display: none; }
+    header button { padding: 5px 6px; }
   }
   /* ---------- update notice ---------- */
   #update {
@@ -299,7 +331,7 @@
       --hl-comment: #6e7781; --hl-keyword: #cf222e; --hl-string: #0a3069; --hl-number: #0550ae;
       --hl-title: #8250df; --hl-builtin: #953800; --hl-tag: #116329;
     }
-    header, #update, #tabs, #editor, #divider, .md .copy { display: none !important; }
+    header, #update, #findbar, #tabs, #editor, #divider, .md .copy { display: none !important; }
     .md pre { white-space: pre-wrap; }
     body, main, #preview { display: block; height: auto; overflow: visible; }
     #preview { padding: 0; }
@@ -315,6 +347,8 @@
   <button id="btn-pdf" title="چاپ یا ذخیره به صورت PDF">🖨️ PDF</button>
   <button id="btn-dir" title="جهت متن: خودکار / راست‌به‌چپ / چپ‌به‌راست"></button>
   <button id="btn-editor" title="نمایش/پنهان کردن ویرایشگر">✏️ ویرایشگر</button>
+  <button id="btn-find" title="جستجو (Ctrl+F)">🔍 جستجو</button>
+  <button id="btn-lang" title="زبان رابط کاربری">🌐 English</button>
   <button id="btn-theme" title="تغییر تم"></button>
   <button id="btn-update" title="بررسی نسخه‌ی تازه" hidden>🔄 به‌روزرسانی</button>
   <input type="file" id="file" accept=".md,.markdown,.mdown,.txt,text/markdown,text/plain" multiple hidden>
@@ -324,6 +358,18 @@
   <span id="update-msg"></span>
   <button id="update-go" hidden></button>
   <button id="update-close">بستن</button>
+</div>
+
+<div id="findbar" hidden>
+  <input id="find-text" dir="auto" placeholder="جستجو">
+  <input id="replace-text" dir="auto" placeholder="جایگزین">
+  <button id="find-prev" title="قبلی">↑</button>
+  <button id="find-next" title="بعدی">↓ جستجو</button>
+  <button id="find-replace">↪ جایگزین</button>
+  <button id="find-all">⇄ جایگزینی همه</button>
+  <button id="find-case" aria-pressed="false">Aa</button>
+  <span id="find-count" role="status" dir="auto"></span>
+  <button id="find-close" title="بستن">×</button>
 </div>
 
 <nav id="tabs"></nav>
@@ -403,15 +449,172 @@ println(sum(f, 1:10))
     b.replaceChildren(icon, text);
     b.setAttribute('aria-label', text.textContent);
   }
-  ['btn-open', 'btn-save', 'btn-pdf', 'btn-editor', 'btn-update'].forEach(function (id) {
-    setLabel($(id), $(id).textContent);
-  });
   var editor = $('editor'), out = $('out'), nameEl = $('name');
 
   var store = {
     get: function (k) { try { return localStorage.getItem(k); } catch (e) { return null; } },
     set: function (k, v) { try { localStorage.setItem(k, v); } catch (e) {} }
   };
+
+  var I18N = {
+    fa: {
+      open: "📂 باز کردن",
+      save: "💾 ذخیره",
+      pdf: "🖨️ PDF",
+      editor: "✏️ ویرایشگر",
+      update: "🔄 به‌روزرسانی",
+      openTitle: "باز کردن فایل ‎.md (Ctrl+O)",
+      saveTitle: "ذخیره در همان فایل (Ctrl+S) — ذخیره با نام جدید (Ctrl+Shift+S یا Shift+کلیک)",
+      pdfTitle: "چاپ یا ذخیره به صورت PDF",
+      dirTitle: "جهت متن: خودکار / راست‌به‌چپ / چپ‌به‌راست",
+      editorTitle: "نمایش/پنهان کردن ویرایشگر",
+      themeTitle: "تغییر تم",
+      updateTitle: "بررسی نسخه‌ی تازه",
+      placeholder: "متن Markdown را اینجا بنویسید یا یک فایل را به داخل صفحه بکشید…",
+      auto: "↔ خودکار",
+      rtl: "← راست‌به‌چپ",
+      ltr: "→ چپ‌به‌راست",
+      light: "☀️ روشن",
+      dark: "🌙 تاریک",
+      untitled: "بدون نام",
+      confirmClose: "بدون ذخیره بسته شود؟",
+      tabClose: "بستن تب (Ctrl+W)",
+      tabNew: "تب جدید (Ctrl+N)",
+      copy: "کپی",
+      saved: "✓ ذخیره شد",
+      unchanged: "✓ بدون تغییر",
+      close: "بستن",
+      downloadInstall: "دانلود و نصب",
+      installRestart: "نصب و اجرای دوباره",
+      apkHint: "پس از پایان دانلود، فایل ‎.apk را باز کنید تا نسخه‌ی تازه نصب شود.",
+      checking: "در حال بررسی نسخه‌ی تازه…",
+      upToDate: "نسخه‌ی شما به‌روز است.",
+      retry: "تلاش دوباره",
+      ready: "نسخه‌ی {version} آماده است.",
+      downloading: "در حال دانلود نسخه‌ی {version}…",
+      progress: "در حال دانلود نسخه‌ی {version}… {percent}٪",
+      installFailed: "به‌روزرسانی انجام نشد: {error}",
+      checkFailed: "بررسی نسخه‌ی تازه انجام نشد: {error}",
+      find: "🔍 جستجو",
+      findTitle: "جستجو (Ctrl+F)",
+      lang: "🌐 English",
+      langTitle: "زبان رابط کاربری",
+      findText: "جستجو",
+      replaceText: "جایگزین",
+      previous: "قبلی",
+      next: "↓ جستجو",
+      replace: "↪ جایگزین",
+      replaceAll: "⇄ جایگزینی همه",
+      matchCase: "حساس به بزرگی حروف",
+      noResults: "نتیجه‌ای یافت نشد",
+      replaced: "{count} مورد جایگزین شد",
+      counter: "{current}/{total}",
+      caseLabel: "Aa",
+      app: "MD Viewer",
+      tabs: "تب‌ها"
+    },
+    en: {
+      open: "📂 Open",
+      save: "💾 Save",
+      pdf: "🖨️ PDF",
+      editor: "✏️ Editor",
+      update: "🔄 Update",
+      openTitle: "Open a .md file (Ctrl+O)",
+      saveTitle: "Save to the same file (Ctrl+S) — Save As (Ctrl+Shift+S or Shift+click)",
+      pdfTitle: "Print or save as PDF",
+      dirTitle: "Text direction: Auto / RTL / LTR",
+      editorTitle: "Show/hide editor",
+      themeTitle: "Change theme",
+      updateTitle: "Check for updates",
+      placeholder: "Write Markdown here or drag a file onto the page…",
+      auto: "↔ Auto",
+      rtl: "← RTL",
+      ltr: "→ LTR",
+      light: "☀️ Light",
+      dark: "🌙 Dark",
+      untitled: "Untitled",
+      confirmClose: "Close without saving?",
+      tabClose: "Close tab (Ctrl+W)",
+      tabNew: "New tab (Ctrl+N)",
+      copy: "Copy",
+      saved: "✓ Saved",
+      unchanged: "✓ Unchanged",
+      close: "Close",
+      downloadInstall: "Download & install",
+      installRestart: "Install & restart",
+      apkHint: "After downloading, open the .apk file to install the new version.",
+      checking: "Checking for updates…",
+      upToDate: "You are up to date.",
+      retry: "Retry",
+      ready: "Version {version} is ready.",
+      downloading: "Downloading version {version}…",
+      progress: "Downloading version {version}… {percent}%",
+      installFailed: "Update failed: {error}",
+      checkFailed: "Update check failed: {error}",
+      find: "🔍 Find",
+      findTitle: "Find (Ctrl+F)",
+      lang: "🌐 فارسی",
+      langTitle: "Interface language",
+      findText: "Find",
+      replaceText: "Replace",
+      previous: "Previous",
+      next: "↓ Find",
+      replace: "↪ Replace",
+      replaceAll: "⇄ Replace all",
+      matchCase: "Match case",
+      noResults: "No results",
+      replaced: "Replaced {count}",
+      counter: "{current}/{total}",
+      caseLabel: "Aa",
+      app: "MD Viewer",
+      tabs: "Tabs"
+    }
+  };
+  var lang = document.documentElement.lang === 'en' ? 'en' : 'fa';
+  function t(key, params) {
+    return I18N[lang][key].replace(/\{(\w+)\}/g, function (all, name) {
+      return params && params[name] !== undefined ? params[name] : all;
+    });
+  }
+
+  function applyLanguage() {
+    document.documentElement.lang = lang;
+    document.documentElement.dir = lang === 'fa' ? 'rtl' : 'ltr';
+    ['open', 'save', 'pdf', 'editor', 'update', 'find', 'lang'].forEach(function (key) {
+      setLabel($('btn-' + key), t(key === 'save' && saveFlash ? saveFlash : key));
+    });
+    ['open', 'save', 'pdf', 'dir', 'editor', 'theme', 'update', 'find', 'lang'].forEach(function (key) {
+      $('btn-' + key).title = t(key + 'Title');
+    });
+    editor.placeholder = t('placeholder');
+    editor.setAttribute('aria-label', t('editor').slice(t('editor').indexOf(' ') + 1));
+    $('tabs').setAttribute('aria-label', t('tabs'));
+    $('update-close').textContent = t('close');
+    ['find-text', 'replace-text'].forEach(function (id, i) {
+      $(id).placeholder = t(i ? 'replaceText' : 'findText');
+      $(id).setAttribute('aria-label', $(id).placeholder);
+    });
+    ['next', 'replace', 'all'].forEach(function (key, i) {
+      setLabel($('find-' + key), t(['next', 'replace', 'replaceAll'][i]));
+      $('find-' + key).title = t(['next', 'replace', 'replaceAll'][i]).slice(2);
+    });
+    ['prev', 'case', 'close'].forEach(function (key, i) {
+      $('find-' + key).title = t(['previous', 'matchCase', 'close'][i]);
+      $('find-' + key).setAttribute('aria-label', $('find-' + key).title);
+    });
+    $('find-case').textContent = t('caseLabel');
+    applyDir();
+    paintThemeButton();
+    paintNotice();
+    paintFindCount();
+    if (active) paintTabs();
+    out.querySelectorAll('.copy').forEach(function (b) { b.textContent = t('copy'); });
+  }
+  $('btn-lang').addEventListener('click', function () {
+    lang = lang === 'fa' ? 'en' : 'fa';
+    store.set('mdv-lang', lang);
+    applyLanguage();
+  });
 
   /* ---------- math: tokenized by marked so markdown never mangles the TeX ---------- */
 
@@ -477,12 +680,12 @@ println(sum(f, 1:10))
 
   hljs.registerAliases('jl', { languageName: 'julia' });
 
-  var DIR_LABEL = { auto: '↔ خودکار', rtl: '← راست‌به‌چپ', ltr: '→ چپ‌به‌راست' };
+  var DIR_LABEL = { auto: 1, rtl: 1, ltr: 1 };
   var dirMode = store.get('mdv-dir');
   if (!DIR_LABEL[dirMode]) dirMode = 'auto';
 
   function applyDir() {
-    setLabel($('btn-dir'), DIR_LABEL[dirMode]);
+    setLabel($('btn-dir'), t(dirMode));
     if (dirMode === 'auto') editor.removeAttribute('dir');
     else editor.setAttribute('dir', dirMode);
   }
@@ -531,11 +734,11 @@ println(sum(f, 1:10))
       wrap.appendChild(pre);
       var b = document.createElement('button');
       b.className = 'copy';
-      b.textContent = 'کپی';
+      b.textContent = t('copy');
       b.addEventListener('click', function () {
         navigator.clipboard.writeText(pre.textContent).then(function () {
           b.textContent = '✓';
-          setTimeout(function () { b.textContent = 'کپی'; }, 1200);
+          setTimeout(function () { b.textContent = t('copy'); }, 1200);
         });
       });
       wrap.appendChild(b);
@@ -576,11 +779,12 @@ println(sum(f, 1:10))
       el.title = tab.path || tab.name;
       var n = document.createElement('span');
       n.className = 'tab-name';
-      n.textContent = tab.name || 'بدون نام';
+      n.textContent = tab.name || t('untitled');
       var x = document.createElement('button');
       x.className = 'tab-close' + (tab.confirm ? ' confirm' : '');
-      x.textContent = tab.confirm ? 'بدون ذخیره بسته شود؟' : '×';
-      x.title = 'بستن تب (Ctrl+W)';
+      x.textContent = tab.confirm ? t('confirmClose') : '×';
+      x.title = t('tabClose');
+      x.setAttribute('aria-label', t(tab.confirm ? 'confirmClose' : 'tabClose'));
       x.addEventListener('click', function (e) { e.stopPropagation(); closeTab(tab); });
       el.addEventListener('click', function () { activate(tab); });
       el.addEventListener('auxclick', function (e) { if (e.button === 1) closeTab(tab); });
@@ -591,18 +795,20 @@ println(sum(f, 1:10))
     var add = document.createElement('button');
     add.id = 'tab-new';
     add.textContent = '+';
-    add.title = 'تب جدید (Ctrl+N)';
+    add.title = t('tabNew');
+    add.setAttribute('aria-label', t('tabNew'));
     add.addEventListener('click', function () { addTab(); });
     tabsEl.appendChild(add);
 
-    nameEl.textContent = active.name || 'MD Viewer';
-    document.title = active.name ? active.name + ' — MD Viewer' : 'MD Viewer';
+    nameEl.textContent = active.name || t('app');
+    document.title = active.name ? active.name + ' — ' + t('app') : t('app');
   }
 
   function activate(tab) {
     if (active) { active.top = editor.scrollTop; active.ptop = preview.scrollTop; }
     active = tab;
     editor.value = tab.text;
+    refreshFind();
     render();
     // put both panes back where this tab was, without the scroll sync fighting it
     restoring = true;
@@ -649,6 +855,7 @@ println(sum(f, 1:10))
 
   var timer;
   editor.addEventListener('input', function () {
+    refreshFind();
     active.text = editor.value;
     if (!active.dirty) { active.dirty = true; paintTabs(); }
     clearTimeout(timer);
@@ -656,6 +863,193 @@ println(sum(f, 1:10))
       render();
       persist();
     }, 120);
+  });
+
+  /* ---------- find / replace ---------- */
+
+  var findbar = $('findbar'), findText = $('find-text'), replaceText = $('replace-text');
+  var matches = [], matchIndex = -1, matchCase = false, replacedCount = null;
+
+  function paintFindCount() {
+    $('find-count').textContent = replacedCount !== null ? t('replaced', { count: replacedCount }) :
+      !findText.value ? '' : !matches.length ? t('noResults') :
+      t('counter', { current: matchIndex + 1, total: matches.length });
+    findText.setAttribute('aria-invalid', String(!!findText.value && !matches.length && replacedCount === null));
+  }
+
+  function refreshFind() {
+    if (!findbar || findbar.hidden) return;
+    var query = findText.value, text = editor.value;
+    matches = [];
+    matchIndex = -1;
+    replacedCount = null;
+    if (query) {
+      var needle = matchCase ? query : query.toLowerCase();
+      var hay = matchCase ? text : text.toLowerCase();
+      if (hay.length === text.length && needle.length === query.length) {
+        for (var at = hay.indexOf(needle); at >= 0; at = hay.indexOf(needle, at + query.length)) {
+          matches.push(at);
+        }
+      } else {
+        // Lowercasing changed the length (e.g. "İ"): compare at original offsets instead.
+        for (var i = 0; i <= text.length - query.length;) {
+          if (text.slice(i, i + query.length).toLowerCase() === needle) {
+            matches.push(i);
+            i += query.length;
+          } else i++;
+        }
+      }
+      var current = matches.indexOf(editor.selectionStart);
+      if (current >= 0 && editor.selectionEnd === editor.selectionStart + query.length) matchIndex = current;
+    }
+    paintFindCount();
+  }
+
+  function showMatch(index) {
+    matchIndex = index;
+    replacedCount = null;
+    var start = matches[index];
+    editor.setSelectionRange(start, start + findText.value.length);
+    // An unfocused textarea does not scroll its selection into view.
+    var measure = document.createElement('textarea'), style = getComputedStyle(editor);
+    ['fontFamily', 'fontSize', 'fontWeight', 'fontStyle', 'lineHeight', 'letterSpacing',
+      'paddingTop', 'paddingRight', 'paddingBottom', 'paddingLeft', 'direction',
+      'unicodeBidi', 'textAlign', 'tabSize', 'wordSpacing', 'whiteSpace', 'overflowWrap'].forEach(function (key) {
+      measure.style[key] = style[key];
+    });
+    measure.style.cssText += ';position:fixed;top:0;left:-10000px;height:0;min-height:0;' +
+      'border:0;box-sizing:border-box;overflow:hidden;visibility:hidden;';
+    measure.style.width = editor.clientWidth + 'px';
+    measure.wrap = editor.wrap;
+    measure.value = editor.value.slice(0, start) + '\u200b';
+    document.body.appendChild(measure);
+    var line = parseFloat(style.lineHeight) || parseFloat(style.fontSize) * 1.9;
+    var y = measure.scrollHeight - parseFloat(style.paddingBottom) - line;
+    measure.remove();
+    editor.scrollTop = Math.max(0, y - editor.clientHeight / 2 + line / 2);
+    paintFindCount();
+  }
+
+  function findNext(step, from) {
+    refreshFind();
+    if (!matches.length) return;
+    var index;
+    if (typeof from === 'number') {
+      index = matches.findIndex(function (pos) { return pos >= from; });
+      if (index < 0) index = 0;
+    } else if (matchIndex >= 0) {
+      index = (matchIndex + step + matches.length) % matches.length;
+    } else {
+      var pos = editor.selectionStart;
+      if (step > 0) {
+        index = matches.findIndex(function (start) { return start >= pos; });
+        if (index < 0) index = 0;
+      } else {
+        index = matches.length - 1;
+        for (var i = matches.length - 1; i >= 0; i--) {
+          if (matches[i] < pos) { index = i; break; }
+        }
+      }
+    }
+    showMatch(index);
+  }
+
+  // The editor is shown while searching; if find had to reveal it, closing hides it again.
+  var revealedEditor = false;
+
+  function openFind(replace) {
+    var selection = editor.value.slice(editor.selectionStart, editor.selectionEnd);
+    if (findbar.hidden) revealedEditor = document.body.classList.contains('no-editor');
+    document.body.classList.remove('no-editor');
+    findbar.hidden = false;
+    if (selection && !/[\r\n]/.test(selection)) findText.value = selection;
+    refreshFind();
+    var input = replace ? replaceText : findText;
+    input.focus();
+    input.select();
+  }
+
+  function closeFind() {
+    if (findbar.hidden) return;
+    findbar.hidden = true;
+    if (revealedEditor) document.body.classList.add('no-editor');
+    else editor.focus({ preventScroll: true });
+    revealedEditor = false;
+  }
+
+  // Edits go through execCommand so Ctrl+Z can undo them. Focus goes back to the find bar
+  // input last used, so Enter in the replace box keeps replacing.
+  var lastInput = findText;
+  [findText, replaceText].forEach(function (el) {
+    el.addEventListener('focus', function () { lastInput = el; });
+  });
+  function insertText(text, start, end) {
+    var back = lastInput;
+    var fired = false;
+    var onInput = function () { fired = true; };
+    editor.focus({ preventScroll: true });
+    editor.setSelectionRange(start, end);
+    editor.addEventListener('input', onInput);
+    var inserted = false;
+    try { inserted = document.execCommand('insertText', false, text); } catch (e) {}
+    editor.removeEventListener('input', onInput);
+    if (!inserted) editor.setRangeText(text, start, end, 'end');
+    if (!fired) editor.dispatchEvent(new Event('input', { bubbles: true }));
+    back.focus({ preventScroll: true });
+  }
+
+  function replaceMatch() {
+    refreshFind();
+    if (!matches.length) return;
+    // no match selected yet: replace the next one after the cursor
+    if (matchIndex < 0) findNext(1);
+    var start = matches[matchIndex], replacement = replaceText.value;
+    insertText(replacement, start, start + findText.value.length);
+    findNext(1, start + replacement.length);
+  }
+
+  function replaceAll() {
+    refreshFind();
+    var count = matches.length;
+    if (count) {
+      var text = editor.value, parts = [], end = 0, size = findText.value.length;
+      matches.forEach(function (start) {
+        parts.push(text.slice(end, start), replaceText.value);
+        end = start + size;
+      });
+      parts.push(text.slice(end));
+      insertText(parts.join(''), 0, text.length);
+      refreshFind();
+    }
+    replacedCount = count;
+    paintFindCount();
+  }
+
+  $('btn-find').addEventListener('click', function () {
+    if (findbar.hidden) openFind(false);
+    else closeFind();
+  });
+  $('find-close').addEventListener('click', closeFind);
+  $('find-next').addEventListener('click', function () { findNext(1); findText.focus(); });
+  $('find-prev').addEventListener('click', function () { findNext(-1); findText.focus(); });
+  $('find-replace').addEventListener('click', replaceMatch);
+  $('find-all').addEventListener('click', replaceAll);
+  $('find-case').addEventListener('click', function () {
+    matchCase = !matchCase;
+    this.setAttribute('aria-pressed', String(matchCase));
+    refreshFind();
+  });
+  // search as you type, from where the cursor is
+  findText.addEventListener('input', function () { findNext(1, editor.selectionStart); });
+  findbar.addEventListener('keydown', function (e) {
+    if (e.isComposing || e.keyCode === 229) return;  // the IME is still composing
+    if (e.key === 'Escape') { e.preventDefault(); closeFind(); }
+    if (e.key !== 'Enter') return;
+    if (e.target === findText) { e.preventDefault(); findNext(e.shiftKey ? -1 : 1); }
+    if (e.target === replaceText) { e.preventDefault(); replaceMatch(); }
+  });
+  editor.addEventListener('keydown', function (e) {
+    if (e.key === 'Escape' && !e.isComposing && !findbar.hidden) closeFind();
   });
 
   /* ---------- files ---------- */
@@ -760,7 +1154,7 @@ println(sum(f, 1:10))
 
   var root = document.documentElement;
   function paintThemeButton() {
-    setLabel($('btn-theme'), root.dataset.theme === 'dark' ? '☀️ روشن' : '🌙 تاریک');
+    setLabel($('btn-theme'), root.dataset.theme === 'dark' ? t('light') : t('dark'));
   }
   $('btn-theme').addEventListener('click', function () {
     root.dataset.theme = root.dataset.theme === 'dark' ? 'light' : 'dark';
@@ -773,6 +1167,8 @@ println(sum(f, 1:10))
   $('btn-editor').addEventListener('click', function () {
     var hidden = document.body.classList.toggle('no-editor');
     store.set('mdv-editor', hidden ? '0' : '1');
+    // find works on the editor text, so it goes away with the editor
+    if (hidden) { revealedEditor = false; closeFind(); }
   });
 
   $('btn-dir').addEventListener('click', function () {
@@ -792,13 +1188,16 @@ println(sum(f, 1:10))
     tab.dirty = false;
     paintTabs();
     persist();
-    flashSave('✓ ذخیره شد');
+    flashSave('saved');
   }
 
+  var saveFlash = null, saveTimer;
   function flashSave(msg) {
     var b = $('btn-save');
-    setLabel(b, msg);
-    setTimeout(function () { setLabel(b, '💾 ذخیره'); }, 1200);
+    saveFlash = msg;
+    setLabel(b, t(msg));
+    clearTimeout(saveTimer);
+    saveTimer = setTimeout(function () { saveFlash = null; setLabel(b, t('save')); }, 1200);
   }
 
   // Save writes back to the tab's own file when it has one; Save As (or a tab that was
@@ -807,7 +1206,7 @@ println(sum(f, 1:10))
     var tab = active, text = tab.text, n = tab.name || 'document.md';
     saveAs = saveAs === true;
     // Nothing changed since the file was opened or last saved: no dialog.
-    if (!saveAs && tab.name && !tab.dirty) { flashSave('✓ بدون تغییر'); return; }
+    if (!saveAs && tab.name && !tab.dirty) { flashSave('unchanged'); return; }
 
     // Desktop app: written in place when the path is known, else a native save dialog
     // that starts in the file's own folder.
@@ -857,12 +1256,17 @@ println(sum(f, 1:10))
   var RELEASE_API = 'https://api.github.com/repos/Ziaeemehr/MDviewer/releases/latest';
   var DAY = 24 * 60 * 60 * 1000;
 
-  function updateNotice(msg, action, run) {
-    $('update-msg').textContent = msg;
-    var go = $('update-go');
-    go.hidden = !action;
-    go.textContent = action || '';
-    go.onclick = run || null;
+  var notice = null;
+  function paintNotice() {
+    if (!notice) return;
+    $('update-msg').textContent = t(notice.key, notice.params);
+    $('update-go').textContent = notice.action ? t(notice.action) : '';
+  }
+  function updateNotice(key, params, action, run) {
+    notice = { key: key, params: params, action: action };
+    paintNotice();
+    $('update-go').hidden = !action;
+    $('update-go').onclick = run || null;
     $('update').hidden = false;
   }
   $('update-close').addEventListener('click', function () { $('update').hidden = true; });
@@ -890,10 +1294,10 @@ println(sum(f, 1:10))
         var apk = res[1].assets.filter(function (a) { return /\.apk$/.test(a.name); })[0];
         if (!apk || !newer(version, res[0])) return null;
         return {
-          version: version, action: 'دانلود و نصب',
+          version: version, action: 'downloadInstall',
           install: function () {
             return tauri.core.invoke('open_url', { url: apk.browser_download_url }).then(function () {
-              updateNotice('پس از پایان دانلود، فایل ‎.apk را باز کنید تا نسخه‌ی تازه نصب شود.');
+              updateNotice('apkHint');
             });
           }
         };
@@ -902,14 +1306,14 @@ println(sum(f, 1:10))
     return tauri.core.invoke('check_update').then(function (info) {
       if (!info) return null;
       return {
-        version: info.version, action: 'نصب و اجرای دوباره',
+        version: info.version, action: 'installRestart',
         install: function () {
           // Open documents, including unsaved text, come back after the restart.
           persist();
-          updateNotice('در حال دانلود نسخه‌ی ' + info.version + '…');
+          updateNotice('downloading', { version: info.version });
           var stop = tauri.event.listen('update-progress', function (e) {
             var done = e.payload[0], total = e.payload[1];
-            if (total) updateNotice('در حال دانلود نسخه‌ی ' + info.version + '… ' + Math.round(done / total * 100) + '٪');
+            if (total) updateNotice('progress', { version: info.version, percent: Math.round(done / total * 100) });
           });
           return tauri.core.invoke('install_update').finally(function () {
             stop.then(function (unlisten) { unlisten(); });
@@ -922,21 +1326,21 @@ println(sum(f, 1:10))
   // quiet: the automatic check at start, which says nothing unless it finds an update.
   function checkUpdate(quiet) {
     var tauri = window.__TAURI__;
-    if (!quiet) updateNotice('در حال بررسی نسخه‌ی تازه…');
+    if (!quiet) updateNotice('checking');
     store.set('mdv-update-check', String(Date.now()));
     findUpdate(tauri).then(function (u) {
       if (!u) {
-        if (!quiet) updateNotice('نسخه‌ی شما به‌روز است.');
+        if (!quiet) updateNotice('upToDate');
         return;
       }
-      updateNotice('نسخه‌ی ' + u.version + ' آماده است.', u.action, function () {
+      updateNotice('ready', { version: u.version }, u.action, function () {
         $('update-go').hidden = true;
         u.install().catch(function (err) {
-          updateNotice('به‌روزرسانی انجام نشد: ' + err, 'تلاش دوباره', function () { checkUpdate(false); });
+          updateNotice('installFailed', { error: String(err) }, 'retry', function () { checkUpdate(false); });
         });
       });
     }).catch(function (err) {
-      if (!quiet) updateNotice('بررسی نسخه‌ی تازه انجام نشد: ' + err);
+      if (!quiet) updateNotice('checkFailed', { error: String(err) });
     });
   }
 
@@ -950,8 +1354,19 @@ println(sum(f, 1:10))
 
   // Matched by physical key (e.code) so they also work on the Persian layout.
   // Browsers keep Ctrl+N/W/Tab for themselves; those three only reach us in the desktop app.
+  // Replace is Ctrl+H, or Ctrl+Alt+F; on macOS only Cmd+Option+F, since Cmd+H hides the
+  // app and Ctrl+H deletes a character there.
+  var MAC = /Mac|iPhone|iPad/.test(navigator.platform);
   window.addEventListener('keydown', function (e) {
-    if (!(e.ctrlKey || e.metaKey) || e.altKey) return;
+    if (!(e.ctrlKey || e.metaKey)) return;
+    var replace = !e.shiftKey && (e.code === 'KeyF' && e.altKey ||
+      e.code === 'KeyH' && e.ctrlKey && !e.altKey && !MAC);
+    if (replace || (e.code === 'KeyF' && !e.shiftKey && !e.altKey)) {
+      e.preventDefault();
+      openFind(replace);
+      return;
+    }
+    if (e.altKey) return;
     var run = {
       KeyO: openFiles,
       KeyS: function () { saveTab(e.shiftKey); },
@@ -1020,6 +1435,7 @@ println(sum(f, 1:10))
 
   /* ---------- start ---------- */
 
+  applyLanguage();
   var restored = null;
   try { restored = JSON.parse(store.get('mdv-tabs')); } catch (e) {}
   if (Array.isArray(restored) && restored.length) {
