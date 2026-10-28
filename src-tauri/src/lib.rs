@@ -286,11 +286,15 @@ fn install_update() -> Result<(), String> {
 }
 
 /// Open a release page or download in the system browser. Android uses it to fetch the new
-/// APK, which the system then offers to install.
+/// APK, which the system then offers to install; the About dialog uses it for its links.
 #[tauri::command]
 fn open_url(app: tauri::AppHandle, url: String) -> Result<(), String> {
     use tauri_plugin_opener::OpenerExt;
-    if !url.starts_with("https://github.com/Ziaeemehr/MDviewer/") {
+    const PAGES: [&str; 2] = [
+        "https://github.com/sponsors/Ziaeemehr",
+        "https://cafebazaar.ir/app/io.github.ziaeemehr.mdviewer",
+    ];
+    if !url.starts_with("https://github.com/Ziaeemehr/MDviewer/") && !PAGES.contains(&url.as_str()) {
         return Err(format!("refusing to open {}", url));
     }
     app.opener()

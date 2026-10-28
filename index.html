@@ -199,7 +199,7 @@
     background: var(--bg-soft);
     color: var(--fg);
     font-family: Vazirmatn, ui-monospace, Menlo, Consolas, monospace;
-    font-size: 15px;
+    font-size: calc(15px * var(--zoom, 1));
     line-height: 1.9;
     /* each line picks its own direction from its first strong character */
     unicode-bidi: plaintext;
@@ -236,6 +236,30 @@
     flex-wrap: wrap;
   }
   #update[hidden] { display: none; }
+
+  /* ---------- about ---------- */
+  #about {
+    width: min(420px, calc(100vw - 32px));
+    padding: 20px 22px;
+    color: var(--fg);
+    background: var(--bg);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    font-size: 14px;
+  }
+  #about::backdrop { background: rgba(0, 0, 0, .4); }
+  #about h2 { margin: 0 0 4px; font-size: 20px; }
+  #about p { margin: 0 0 14px; color: var(--muted); line-height: 1.7; }
+  #about dl { display: grid; grid-template-columns: auto 1fr; gap: 4px 14px; margin: 0 0 14px; }
+  #about dt { color: var(--muted); }
+  #about dd { margin: 0; }
+  #about ul { margin: 0 0 16px; padding-inline-start: 20px; line-height: 1.9; }
+  #about a { color: var(--accent); }
+  #about-note { font-size: 13px; }
+  #about .zoom { display: flex; align-items: center; gap: 8px; margin: 0 0 16px; }
+  #about .zoom span:first-child { flex: 1; color: var(--muted); }
+  #zoom-value { min-width: 4.5em; text-align: center; font-variant-numeric: tabular-nums; }
+  #about .actions { display: flex; flex-wrap: wrap; gap: 8px; justify-content: flex-end; }
   #update-msg { flex: 1; min-width: 0; }
 
   /* touch screens: larger targets for the small tab buttons */
@@ -245,7 +269,7 @@
   }
 
   /* ---------- rendered markdown ---------- */
-  .md { max-width: 820px; margin: 0 auto; font-size: 17px; line-height: 2; overflow-wrap: break-word; }
+  .md { max-width: calc(820px * var(--zoom, 1)); margin: 0 auto; font-size: calc(17px * var(--zoom, 1)); line-height: 2; overflow-wrap: break-word; }
   .md > :first-child { margin-top: 0; }
   .md [dir] { text-align: start; }
   .md h1, .md h2, .md h3, .md h4, .md h5, .md h6 { line-height: 1.5; margin: 1.6em 0 0.6em; }
@@ -350,7 +374,7 @@
   <button id="btn-find" title="جستجو (Ctrl+F)">🔍 جستجو</button>
   <button id="btn-lang" title="زبان رابط کاربری">🌐 English</button>
   <button id="btn-theme" title="تغییر تم"></button>
-  <button id="btn-update" title="بررسی نسخه‌ی تازه" hidden>🔄 به‌روزرسانی</button>
+  <button id="btn-about" title="درباره‌ی برنامه">ℹ️ درباره</button>
   <input type="file" id="file" accept=".md,.markdown,.mdown,.txt,text/markdown,text/plain" multiple hidden>
 </header>
 
@@ -359,6 +383,34 @@
   <button id="update-go" hidden></button>
   <button id="update-close">بستن</button>
 </div>
+
+<dialog id="about">
+  <h2>MD Viewer</h2>
+  <p data-t="aboutDesc"></p>
+  <dl>
+    <dt data-t="versionLabel"></dt><dd id="about-version"></dd>
+    <dt data-t="developer"></dt><dd>Abolfazl Ziaeemehr</dd>
+    <dt data-t="license"></dt><dd>MIT</dd>
+  </dl>
+  <div class="zoom">
+    <span data-t="fontSize"></span>
+    <button id="zoom-out" dir="ltr">A−</button>
+    <span id="zoom-value"></span>
+    <button id="zoom-in" dir="ltr">A+</button>
+  </div>
+  <ul>
+    <li><a href="https://github.com/Ziaeemehr/MDviewer/" data-t="linkRepo"></a></li>
+    <li><a href="https://github.com/Ziaeemehr/MDviewer/releases/latest" data-t="linkReleases"></a></li>
+    <li><a href="https://github.com/Ziaeemehr/MDviewer/issues" data-t="linkIssues"></a></li>
+    <li><a href="https://github.com/sponsors/Ziaeemehr" data-t="linkSponsor"></a></li>
+    <li><a href="https://cafebazaar.ir/app/io.github.ziaeemehr.mdviewer" data-t="linkBazaar"></a></li>
+  </ul>
+  <p id="about-note" data-t="autoUpdate" hidden></p>
+  <div class="actions">
+    <button id="btn-update" hidden></button>
+    <button id="about-close"></button>
+  </div>
+</dialog>
 
 <div id="findbar" hidden>
   <input id="find-text" dir="auto" placeholder="جستجو">
@@ -462,7 +514,24 @@ println(sum(f, 1:10))
       save: "💾 ذخیره",
       pdf: "🖨️ PDF",
       editor: "✏️ ویرایشگر",
-      update: "🔄 به‌روزرسانی",
+      update: "🔄 بررسی به‌روزرسانی",
+      about: "ℹ️ درباره",
+      aboutTitle: "درباره‌ی برنامه، نسخه و به‌روزرسانی",
+      aboutDesc: "نمایشگر و ویرایشگر Markdown برای متن فارسی و انگلیسی، با فرمول و رنگ‌آمیزی کد.",
+      versionLabel: "نسخه",
+      webVersion: "نسخه‌ی وب",
+      developer: "توسعه‌دهنده",
+      license: "مجوز",
+      linkRepo: "صفحه‌ی پروژه و کد منبع در GitHub",
+      linkReleases: "نسخه‌ها و فایل‌های نصب",
+      linkIssues: "گزارش مشکل یا پیشنهاد",
+      linkSponsor: "حمایت از پروژه",
+      linkBazaar: "نسخه‌ی اندروید در کافه‌بازار",
+      fontSize: "اندازه‌ی متن",
+      zoomOut: "کوچک‌تر (Ctrl+−)",
+      zoomIn: "بزرگ‌تر (Ctrl+=)",
+      zoomReset: "اندازه‌ی پیش‌فرض (Ctrl+0)",
+      autoUpdate: "برنامه روزی یک بار خودش نسخه‌ی تازه را بررسی می‌کند و اگر پیدا کند، نصبش را پیشنهاد می‌دهد.",
       openTitle: "باز کردن فایل ‎.md (Ctrl+O)",
       saveTitle: "ذخیره در همان فایل (Ctrl+S) — ذخیره با نام جدید (Ctrl+Shift+S یا Shift+کلیک)",
       pdfTitle: "چاپ یا ذخیره به صورت PDF",
@@ -518,7 +587,24 @@ println(sum(f, 1:10))
       save: "💾 Save",
       pdf: "🖨️ PDF",
       editor: "✏️ Editor",
-      update: "🔄 Update",
+      update: "🔄 Check for updates",
+      about: "ℹ️ About",
+      aboutTitle: "About, version and updates",
+      aboutDesc: "A Markdown viewer and editor for Persian and English text, with math and code highlighting.",
+      versionLabel: "Version",
+      webVersion: "Web version",
+      developer: "Developer",
+      license: "License",
+      linkRepo: "Project page and source on GitHub",
+      linkReleases: "Releases and installers",
+      linkIssues: "Report a problem or suggest an idea",
+      linkSponsor: "Sponsor the project",
+      linkBazaar: "Android version on Cafe Bazaar",
+      fontSize: "Text size",
+      zoomOut: "Smaller (Ctrl+−)",
+      zoomIn: "Larger (Ctrl+=)",
+      zoomReset: "Default size (Ctrl+0)",
+      autoUpdate: "The app checks for a new version once a day and offers to install it when one is found.",
       openTitle: "Open a .md file (Ctrl+O)",
       saveTitle: "Save to the same file (Ctrl+S) — Save As (Ctrl+Shift+S or Shift+click)",
       pdfTitle: "Print or save as PDF",
@@ -580,16 +666,23 @@ println(sum(f, 1:10))
   function applyLanguage() {
     document.documentElement.lang = lang;
     document.documentElement.dir = lang === 'fa' ? 'rtl' : 'ltr';
-    ['open', 'save', 'pdf', 'editor', 'update', 'find', 'lang'].forEach(function (key) {
+    ['open', 'save', 'pdf', 'editor', 'update', 'find', 'lang', 'about'].forEach(function (key) {
       setLabel($('btn-' + key), t(key === 'save' && saveFlash ? saveFlash : key));
     });
-    ['open', 'save', 'pdf', 'dir', 'editor', 'theme', 'update', 'find', 'lang'].forEach(function (key) {
+    ['open', 'save', 'pdf', 'dir', 'editor', 'theme', 'update', 'find', 'lang', 'about'].forEach(function (key) {
       $('btn-' + key).title = t(key + 'Title');
     });
     editor.placeholder = t('placeholder');
     editor.setAttribute('aria-label', t('editor').slice(t('editor').indexOf(' ') + 1));
     $('tabs').setAttribute('aria-label', t('tabs'));
     $('update-close').textContent = t('close');
+    $('about-close').textContent = t('close');
+    document.querySelectorAll('[data-t]').forEach(function (el) { el.textContent = t(el.dataset.t); });
+    if (!window.__TAURI__) $('about-version').textContent = t('webVersion');
+    $('zoom-out').title = t('zoomOut');
+    $('zoom-in').title = t('zoomIn');
+    $('zoom-value').title = t('zoomReset');
+    paintZoom();
     ['find-text', 'replace-text'].forEach(function (id, i) {
       $(id).placeholder = t(i ? 'replaceText' : 'findText');
       $(id).setAttribute('aria-label', $(id).placeholder);
@@ -680,11 +773,12 @@ println(sum(f, 1:10))
 
   hljs.registerAliases('jl', { languageName: 'julia' });
 
+  // Each tab keeps its own text direction; this is the active tab's.
   var DIR_LABEL = { auto: 1, rtl: 1, ltr: 1 };
-  var dirMode = store.get('mdv-dir');
-  if (!DIR_LABEL[dirMode]) dirMode = 'auto';
+  function tabDir() { return active ? active.dir : 'auto'; }
 
   function applyDir() {
+    var dirMode = tabDir();
     setLabel($('btn-dir'), t(dirMode));
     if (dirMode === 'auto') editor.removeAttribute('dir');
     else editor.setAttribute('dir', dirMode);
@@ -695,6 +789,7 @@ println(sum(f, 1:10))
   function render() {
     // Sanitize the markdown output first, then let KaTeX fill in the formulas.
     out.innerHTML = DOMPurify.sanitize(marked.parse(editor.value));
+    var dirMode = tabDir();
 
     out.querySelectorAll('.math-block, .math-inline').forEach(function (el) {
       var display = el.classList.contains('math-block') || el.dataset.display === '1';
@@ -758,6 +853,7 @@ println(sum(f, 1:10))
     d = d || {};
     return {
       id: ++seq, name: d.name || '', text: d.text || '', dirty: !!d.dirty,
+      dir: DIR_LABEL[d.dir] ? d.dir : 'auto',  // text direction of this tab only
       path: d.path || null,      // desktop app: full path of the file on disk
       handle: d.handle || null,  // Chrome/Edge: file handle (lost on reload)
       top: 0, ptop: 0
@@ -766,7 +862,7 @@ println(sum(f, 1:10))
 
   function persist() {
     store.set('mdv-tabs', JSON.stringify(tabs.map(function (t) {
-      return { name: t.name, text: t.text, path: t.path, dirty: t.dirty };
+      return { name: t.name, text: t.text, path: t.path, dirty: t.dirty, dir: t.dir };
     })));
     store.set('mdv-active', String(tabs.indexOf(active)));
   }
@@ -809,6 +905,7 @@ println(sum(f, 1:10))
     active = tab;
     editor.value = tab.text;
     refreshFind();
+    applyDir();
     render();
     // put both panes back where this tab was, without the scroll sync fighting it
     restoring = true;
@@ -1080,7 +1177,8 @@ println(sum(f, 1:10))
       } else {
         tab = newTab(d);
         var blank = !active.dirty && !active.name && !active.path && !active.handle;
-        if (blank) { tabs.splice(tabs.indexOf(active), 1, tab); active = null; }
+        // the file takes the place of the blank tab, so it keeps that tab's direction
+        if (blank) { tab.dir = active.dir; tabs.splice(tabs.indexOf(active), 1, tab); active = null; }
         else tabs.push(tab);
       }
       activate(tab);
@@ -1172,12 +1270,11 @@ println(sum(f, 1:10))
   });
 
   $('btn-dir').addEventListener('click', function () {
-    dirMode = dirMode === 'auto' ? 'rtl' : dirMode === 'rtl' ? 'ltr' : 'auto';
-    store.set('mdv-dir', dirMode);
+    active.dir = active.dir === 'auto' ? 'rtl' : active.dir === 'rtl' ? 'ltr' : 'auto';
+    persist();
     applyDir();
     render();
   });
-  applyDir();
 
   /* ---------- save / print ---------- */
 
@@ -1346,9 +1443,57 @@ println(sum(f, 1:10))
 
   if (window.__TAURI__) {
     $('btn-update').hidden = false;
-    $('btn-update').addEventListener('click', function () { checkUpdate(false); });
+    $('about-note').hidden = false;
+    // the result shows in the notice bar under the toolbar
+    $('btn-update').addEventListener('click', function () { $('about').close(); checkUpdate(false); });
     if (!(Date.now() - (+store.get('mdv-update-check') || 0) < DAY)) checkUpdate(true);
   }
+
+  /* ---------- text size: scales the editor and the preview together ---------- */
+
+  var ZOOM_MIN = 70, ZOOM_MAX = 200, ZOOM_STEP = 10;
+  var zoom = +store.get('mdv-zoom');
+  if (!(zoom >= ZOOM_MIN && zoom <= ZOOM_MAX)) zoom = 100;
+
+  function paintZoom() {
+    var shown = String(zoom);
+    if (lang === 'fa') shown = shown.replace(/\d/g, function (d) { return '۰۱۲۳۴۵۶۷۸۹'[d]; }) + '٪';
+    else shown += '%';
+    $('zoom-value').textContent = shown;
+    $('zoom-out').disabled = zoom <= ZOOM_MIN;
+    $('zoom-in').disabled = zoom >= ZOOM_MAX;
+  }
+  function setZoom(z) {
+    zoom = Math.min(ZOOM_MAX, Math.max(ZOOM_MIN, z));
+    root.style.setProperty('--zoom', zoom / 100);
+    store.set('mdv-zoom', String(zoom));
+    paintZoom();
+  }
+  $('zoom-out').addEventListener('click', function () { setZoom(zoom - ZOOM_STEP); });
+  $('zoom-in').addEventListener('click', function () { setZoom(zoom + ZOOM_STEP); });
+  $('zoom-value').addEventListener('click', function () { setZoom(100); });
+  setZoom(zoom);
+
+  /* ---------- about ---------- */
+
+  var about = $('about');
+  $('btn-about').addEventListener('click', function () { about.showModal(); });
+  $('about-close').addEventListener('click', function () { about.close(); });
+  // a click on the backdrop lands on the dialog element itself
+  about.addEventListener('click', function (e) { if (e.target === about) about.close(); });
+  if (window.__TAURI__) {
+    window.__TAURI__.app.getVersion().then(function (v) { $('about-version').textContent = v; });
+  }
+  // the installed app opens links in the system browser
+  about.querySelectorAll('a').forEach(function (a) {
+    a.target = '_blank';
+    a.rel = 'noopener noreferrer';
+    a.addEventListener('click', function (e) {
+      if (!window.__TAURI__) return;
+      e.preventDefault();
+      window.__TAURI__.core.invoke('open_url', { url: a.href });
+    });
+  });
 
   /* ---------- keyboard shortcuts ---------- */
 
@@ -1372,9 +1517,16 @@ println(sum(f, 1:10))
       KeyS: function () { saveTab(e.shiftKey); },
       KeyN: function () { addTab(); },
       KeyW: function () { closeTab(active); },
-      Tab: function () { cycleTab(e.shiftKey ? -1 : 1); }
+      Tab: function () { cycleTab(e.shiftKey ? -1 : 1); },
+      Equal: function () { setZoom(zoom + ZOOM_STEP); },
+      NumpadAdd: function () { setZoom(zoom + ZOOM_STEP); },
+      Minus: function () { setZoom(zoom - ZOOM_STEP); },
+      NumpadSubtract: function () { setZoom(zoom - ZOOM_STEP); },
+      Digit0: function () { setZoom(100); },
+      Numpad0: function () { setZoom(100); }
     }[e.code];
-    if (!run || (e.shiftKey && e.code !== 'Tab' && e.code !== 'KeyS')) return;
+    // Shift is part of Ctrl+Shift+S, Ctrl+Shift+Tab and of "+" on many layouts
+    if (!run || (e.shiftKey && !/^(Tab|KeyS|Equal)$/.test(e.code))) return;
     e.preventDefault();
     run();
   });
@@ -1438,12 +1590,17 @@ println(sum(f, 1:10))
   applyLanguage();
   var restored = null;
   try { restored = JSON.parse(store.get('mdv-tabs')); } catch (e) {}
+  // tabs saved before direction was per tab take the old shared setting
+  var oldDir = store.get('mdv-dir');
   if (Array.isArray(restored) && restored.length) {
-    tabs = restored.map(function (d) { return newTab(d); });
+    tabs = restored.map(function (d) {
+      if (d && !d.dir) d.dir = oldDir;
+      return newTab(d);
+    });
   } else if (store.get('mdv-text')) {
     // text kept by a version that had a single document
     var oldName = store.get('mdv-name');
-    tabs = [newTab({ name: oldName, text: store.get('mdv-text'), dirty: !oldName })];
+    tabs = [newTab({ name: oldName, text: store.get('mdv-text'), dirty: !oldName, dir: oldDir })];
   } else {
     tabs = [newTab({ text: $('sample').textContent })];
   }
